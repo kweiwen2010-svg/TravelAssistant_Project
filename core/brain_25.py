@@ -1,12 +1,9 @@
 import os
+import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
-
-# ===========================================================================
-# 1. 結構化資料定義 (回歸純文字穩定備案)
-# ===========================================================================
 
 class AltSpotDetail(BaseModel):
     name: str = Field(description="替代餐廳或活動的繁體中文名稱")
@@ -28,10 +25,10 @@ class SpotDetail(BaseModel):
     alternatives: List[AltSpotDetail] = Field(default=[], description="如果是餐廳，請固定提供1-2個附近的替代餐廳/美食備案物體；如果是純景點可留空陣列")
 
 class HotelDetail(BaseModel):
-    name: str = Field(description="建議當晚入住的飯店名稱")
-    reason: str = Field(description="推薦入住這間飯店的原因")
-    price_level: str = Field(description="預估房價等級")
-    search_keyword: str = Field(description="適合放入 Google 搜尋該飯店的關鍵字")
+    name: str = Field(description="建議當晚入住的飯店名稱。若當天為最後一天且搭機回國，請直接寫'無（今日搭機返家）'")
+    reason: str = Field(description="推薦入住這間飯店的原因。若不需住宿，請寫'今日已安排回國班機，夜宿機上或已抵達溫暖的家。'")
+    price_level: str = Field(description="預估房價等級。若不需住宿，請填寫'NT$ 0 (不需住宿)'")
+    search_keyword: str = Field(description="適合放入 Google 搜尋該飯店的關鍵字。若無住宿請寫 'FREE'")
 
 class DayItinerary(BaseModel):
     day_number: int = Field(description="目前是第幾天的行程")
@@ -40,11 +37,6 @@ class DayItinerary(BaseModel):
     recommended_hotel: HotelDetail = Field(description="當晚主推的住宿/飯店明細")
     alternative_hotels: List[AltHotelDetail] = Field(default=[], description="固定提供1-2家同區域、不同價位風格的替代飯店備案物體")
     local_tips: str = Field(description="當天的交通銜接大方向建議或特別注意事項")
-
-
-# ===========================================================================
-# 2. 大腦核心類別 (Gemini 2.5 Flash 驅動)
-# ===========================================================================
 
 class TravelBrain:
     def __init__(self):
@@ -56,15 +48,24 @@ class TravelBrain:
             raise ValueError("找不到 GEMINI_API_KEY。請檢查 .env 檔案。")
         return genai.Client(api_key=api_key)
 
-    def generate_day_itinerary(self, user_prompt: str, day_idx: int, previous_context: str = "") -> DayItinerary:
+    def generate_day_itinerary(self, user_prompt: str, day_idx: int, total_days: int = 10, previous_context: str = "") -> DayItinerary:
         system_instruction = (
             "你是一位頂級的專業全球導遊與行程規劃師。\n"
-            "【鐵律】你必須完全使用『繁體中文（台灣，zh-TW）』進行回覆。\n"
-            "請務必為每一餐（餐廳）以及每晚住宿提供 1-2 個實用的備案選擇。"
+            "【鐵律 1】你必須完全使用『繁體中文（台灣，zh-TW）』進行回覆。\n"
+            "【鐵律 2】請務必為每一餐（餐廳）以及每晚住宿提供 1-2 個實用的備案選擇。\n"
+            "【鐵律 3】貨幣單位一致性：全行程中所有涉及金額、消費狀況、現場預估費用（estimated_spending）的描述，\n"
+            "         請統一使用『新台幣 (TWD)』或『當地貨幣並加註新台幣折算（例如：HKD 100，約折合台幣 410 元）』呈現。\n"
+            "         絕對不允許第一天純寫港幣、第二天純寫台幣、第三天純寫美金。金額計價基準必須跨天數完全一致！\n"
+            "【鐵律 4】回國邊界防禦律令（極度重要）：\n"
+            "         當目前規劃的天數（day_idx）等於總天數（total_days）時，代表這是旅程的『最後一天』！\n"
+            "         你必須在下午或傍晚強制安排『前往機場、辦理登機、免稅店購物、搭機返國』的返航行程。\n"
+            "         最後一天的晚餐與住宿（recommended_hotel）不應再推薦當地飯店，請依據欄位說明強制填入『無（今日搭機返家）』，\n"
+            "         且 alternative_hotels 備案陣列必須留空（[]）。不可讓旅客無止境地留在當地！"
         )
         full_prompt = (
             f"使用者原始旅遊偏好：{user_prompt}\n"
-            f"目前正在規劃【第 {day_idx} 天】。\n"
+            f"整個旅程總天數：{total_days} 天。\n"
+            f"目前正在規劃【第 {day_idx} 天 / 共 {total_days} 天】。\n"
             f"【前情提要】：{previous_context if previous_context else '這是旅程的第一天。'}"
         )
         
@@ -74,12 +75,61 @@ class TravelBrain:
             response_mime_type="application/json",
             response_schema=DayItinerary,
         )
-        client = self._get_client()
-        response = client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
-        return DayItinerary.model_validate_json(response.text)
+        
+        max_retries = 3
+        last_error_msg = ""
+        
+        for attempt in range(max_retries):
+            try:
+                client = self._get_client()
+                response = client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
+                return DayItinerary.model_validate_json(response.text)
+            except Exception as e:
+                last_error_msg = str(e)
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                
+        # 🛡️ 【安全氣囊核心：3次重試皆失敗時觸發自動保底降級】
+        fallback_itinerary = DayItinerary(
+            day_number=day_idx,
+            day_title="【系統提示】今日行程數據讀取稍有延遲",
+            spots=[
+                SpotDetail(
+                    time="說明",
+                    name="連線或解析暫時受阻",
+                    description=f"很抱歉，本地在向雲端大腦規劃第 {day_idx} 天行程時遭遇異常波動（錯誤代碼: {last_error_msg[:60]}）。這不影響整體系統！請不要緊張，直接拉到本天行程的最下方，點擊『🎯 立即微調此天行程與住宿』按鈕，即可單獨為這一天的行程進行手動無縫修復與重新生成。",
+                    transportation="無",
+                    booking_info="無",
+                    estimated_spending="NT$ 0 (請點擊下方微調重新取得)",
+                    map_keyword="",
+                    ticket_link_query="FREE",
+                    alternatives=[]
+                )
+            ],
+            recommended_hotel=HotelDetail(
+                name="請點擊下方微調按鈕重新取得飯店",
+                reason="由於大腦遭遇短暫波動，請點擊下方微調按鈕單獨重新抓取此天資料。",
+                price_level="NT$ 0",
+                search_keyword="FREE"
+            ),
+            alternative_hotels=[],
+            local_tips="提示：您可以直接點擊下方微調按鈕，輸入『重新產生這天行程』來修正本頁面。"
+        )
+        return fallback_itinerary
 
     def refine_day_itinerary(self, current_day_data: DayItinerary, refine_instruction: str) -> DayItinerary:
-        system_instruction = "你是一位善解人意的旅遊行程修正專家。【鐵律】你必須完全使用『繁體中文（台灣，zh-TW）』進行回覆。"
+        system_instruction = (
+            "你是一位行動力極強、善解人意的旅遊行程修正專家。\n"
+            "【鐵律 1】你必須完全使用『繁體中文（台灣，zh-TW）』進行回覆。\n"
+            "【鐵律 2】修改費用時，請同樣遵守統一使用『新台幣 (TWD)』或加註台幣說明的原則。\n"
+            "【鐵律 3】鋼鐵覆寫特令（極度重要）：\n"
+            "         你必須嚴格、無條件地服從使用者的『微調指令 (refine_instruction)』！\n"
+            "         如果使用者要求更換晚餐、更換某個景點、或指定入住某家備案飯店，你『必須』直接修改並替換掉\n"
+            "         原本 spots 清單或 recommended_hotel 中的內容。絕對不允許原封不動地傳回舊行程！\n"
+            "         如果原本的行程是保底提示或受阻數據，請直接忽略原本的提示，重新根據微調指令為使用者生出一份完美的當日行程。\n"
+            "         請展現你的修正誠意，將使用者想要的變更完美落實到輸出的 JSON 結構中。"
+        )
         full_prompt = (
             f"原行程內容（JSON）：\n{current_day_data.model_dump_json(indent=2)}\n"
             f"使用者微調指令：\n{refine_instruction}\n"
@@ -87,10 +137,19 @@ class TravelBrain:
         
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
-            temperature=0.5,
+            temperature=0.4,
             response_mime_type="application/json",
             response_schema=DayItinerary,
         )
-        client = self._get_client()
-        response = client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
-        return DayItinerary.model_validate_json(response.text)
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                client = self._get_client()
+                response = client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
+                return DayItinerary.model_validate_json(response.text)
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                raise e
