@@ -12,23 +12,55 @@ from core.brain_25 import TravelBrain, DayItinerary
 
 st.set_page_config(page_title="全球智慧旅遊助手 2.5", page_icon="✈️", layout="wide")
 
+# 🎨 注入全新交通時間軸 (Timeline Container) CSS 樣式
 st.markdown("""
 <style>
     .welcome-box { background-color: #f0fdf4; padding: 22px; border-radius: 10px; border: 1px solid #bbf7d0; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
     .day-header { background: linear-gradient(90deg, #1e293b 0%, #334155 100%); color: white; padding: 12px 20px; border-radius: 6px; font-size: 1.25rem; font-weight: bold; margin-top: 35px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
-    .spot-card { background-color: #f8f9fa; padding: 18px; border-radius: 8px; border-left: 5px solid #ff4b4b; margin-bottom: 15px; }
-    .hotel-card { background-color: #f0f7ff; padding: 18px; border-radius: 8px; border-left: 5px solid #0284c7; margin-top: 20px; margin-bottom: 15px; }
+    
+    /* 景點卡片與住宿卡片基本流 */
+    .spot-card { background-color: #ffffff; padding: 18px; border-radius: 8px; border-left: 5px solid #ff4b4b; margin-bottom: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .hotel-card { background-color: #f0f7ff; padding: 18px; border-radius: 8px; border-left: 5px solid #0284c7; margin-bottom: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    
     .time-badge { color: #ff4b4b; font-weight: bold; font-size: 1.1rem; }
     .hotel-badge { color: #0284c7; font-weight: bold; font-size: 1.1rem; }
     .spot-name { font-weight: bold; font-size: 1.2rem; color: #1e293b; }
-    .info-sub-block { font-size: 0.95rem; color: #475569; background-color: #ffffff; padding: 8px 12px; border-radius: 6px; margin-top: 6px; border: 1px solid #e2e8f0; }
-    .tip-box { background-color: #f8fafc; padding: 12px; border-radius: 8px; border: 1px dashed #cbd5e1; margin-top: 15px; }
+    .info-sub-block { font-size: 0.95rem; color: #475569; background-color: #f8fafc; padding: 8px 12px; border-radius: 6px; margin-top: 6px; border: 1px solid #e2e8f0; }
+    .tip-box { background-color: #f8fafc; padding: 12px; border-radius: 8px; border: 1px dashed #cbd5e1; margin-top: 25px; }
     .download-section { background-color: #f1f5f9; padding: 20px; border-radius: 10px; margin-top: 30px; border: 1px solid #cbd5e1; }
+
+    /* 🛡️ 現代化垂直時間軸與交通微縮膠囊的核心防線 (手機端完美適應) */
+    .timeline-bridge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin: 12px 0;
+        width: 100%;
+    }
+    .timeline-line {
+        width: 2px;
+        height: 25px;
+        border-left: 2px dashed #94a3b8;
+    }
+    .timeline-capsule {
+        background-color: #f1f5f9;
+        color: #475569;
+        font-size: 0.9rem;
+        padding: 6px 16px;
+        border-radius: 50px;
+        border: 1px solid #cbd5e1;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 90%;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        text-align: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("✈️ 全球智慧旅遊助手 2.5 (安全氣囊防禦 V3.1)")
-st.caption("基於 Gemini 2.5 Flash 大腦 • 已整合 API 自動降級保底防禦網")
+st.title("✈️ 全球智慧旅遊助手 2.5 (時間軸交通優化 V3.2)")
+st.caption("基於 Gemini 2.5 Flash 大腦 • 已整合獨立垂直銜接橋樑版面")
 
 if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
 if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
@@ -44,18 +76,12 @@ def prepare_download_text(prompt, sorted_days_keys):
         download_text += f"-----------------------------------------\n📅 第 {cb} 天：{d_obj.day_title}\n-----------------------------------------\n"
         for sp in d_obj.spots:
             download_text += f"⏱️ 時間：{sp.time}\n📍 景點/餐廳：{sp.name}\n📝 介紹：{sp.description}\n"
-            if getattr(sp, 'alternatives', []):
-                alt_strs = [f"{a.name}({a.desc})" for a in sp.alternatives]
-                download_text += f"🔄 備案選擇：{', '.join(alt_strs)}\n"
             download_text += f"🚇 交通指引：{sp.transportation}\n"
             download_text += f"🎫 購票攻略：{sp.booking_info}\n"
             download_text += f"💳 預估費用：{sp.estimated_spending}\n\n"
         download_text += f"🏠 當晚住宿：{d_obj.recommended_hotel.name}\n"
         download_text += f"📝 推薦理由：{d_obj.recommended_hotel.reason}\n"
         download_text += f"💰 房價等級：{d_obj.recommended_hotel.price_level}\n"
-        if getattr(d_obj, 'alternative_hotels', []):
-            alt_h_strs = [f"{h.name}({h.desc})" for h in d_obj.alternative_hotels]
-            download_text += f"🔄 住宿備案：{', '.join(alt_h_strs)}\n"
         download_text += f"💡 當日導遊貼心叮嚀：{d_obj.local_tips}\n\n"
     return download_text
 
@@ -75,15 +101,25 @@ def create_zip_backup(prompt, sorted_days_keys):
         zip_file.writestr("itinerary_backup.json", json_str.encode("utf-8-sig"))
     return zip_buffer.getvalue()
 
+# 🛡️ 輔助函式：動態判斷交通文字該配哪一種前綴圖示，讓視覺更靈活
+def get_transport_icon(text: str) -> str:
+    if "步" in text or "走" in text: return "🚶"
+    if "地鐵" in text or "捷運" in text or "火車" in text or "電車" in text or "M" in text: return "🚇"
+    if "公車" in text or "巴士" in text or "客運" in text: return "🚌"
+    if "開車" in text or "自駕" in text or "計程車" in text or "小黃" in text or "Uber" in text: return "🚗"
+    if "船" in text or "渡輪" in text: return "🚢"
+    if "飛機" in text or "航班" in text or "空運" in text: return "✈️"
+    return "🔄"
+
 if not st.session_state.itinerary_days and not st.session_state.is_generating:
     st.markdown("""
     <div class="welcome-box">
-        <h4 style="margin-top:0; color: #166534;">💡 歡迎使用全球智慧旅遊助手！開始您的第一步：</h4>
-        <p style="font-size: 0.98rem; color: #1e293b;">本系統已整合 V3.1 鋼鐵防禦網，即使發生 API 波動，天數生成也絕對不會中斷崩潰：</p>
+        <h4 style="margin-top:0; color: #166534;">💡 歡迎使用全球智慧旅遊助手 V3.2！</h4>
+        <p style="font-size: 0.98rem; color: #1e293b;">我們已將「點到點交通方式」全面自景點卡片中獨立抽出，升級為更易讀的垂直時間軸流向：</p>
         <ol style="font-size: 0.95rem; color: #374151; line-height: 1.7;">
             <li>請看向網頁的 <b>⬅️ 左側邊欄（📋 旅遊意向設定與備份還原）</b>。</li>
-            <li>在輸入框中，自由修改或寫下您的旅遊想法，點擊 <b>「🚀 開始全自動分段生成」</b>。</li>
-            <li><b>【防禦說明】</b>：若生成過程中某天因網路問題出現保底提示，直接點擊該天最下方的微調按鈕即可單獨修正！</li>
+            <li>在輸入框中確認或修改旅遊想法，點擊 <b>「🚀 開始全自動分段生成」</b>。</li>
+            <li>本系統完全獨立運作，您可以極度放心地在電腦或手機端同步展開測試！</li>
         </ol>
     </div>
     """, unsafe_allow_html=True)
@@ -98,7 +134,7 @@ with st.sidebar:
         try:
             with zipfile.ZipFile(uploaded_zip) as z:
                 if "itinerary_backup.json" not in z.namelist():
-                    st.error("❌ 錯誤：上傳的 ZIP 檔中找不到標準的行程備份數據，請確認是否為本系統導出的檔案。")
+                    st.error("❌ 錯誤：上傳的 ZIP 檔中找不到標準的行程備份數據。")
                 else:
                     with z.open("itinerary_backup.json") as json_file:
                         loaded_bytes = json_file.read()
@@ -122,12 +158,12 @@ with st.sidebar:
     
     generate_btn = st.button("🚀 開始全自動分段生成", type="primary", use_container_width=True, disabled=st.session_state.is_generating)
     
-    if st.button("🧹 清除目前行程方案 (一鍵重設安全網)", use_container_width=True, disabled=st.session_state.is_generating):
+    if st.button("🧹 清除目前行程方案", use_container_width=True, disabled=st.session_state.is_generating):
         st.session_state.itinerary_days = {}
         st.session_state.user_prompt_val = "我想去土耳其10天 老婆同遊 美食 人文 風景 行程不要太趕"
         st.session_state.total_days_val = 10
         st.session_state.uploader_version += 1
-        st.success("系統與檔案上傳快取已成功全面清除重設！")
+        st.success("系統與檔案上傳快取已全面重設！")
         st.rerun()
 
 if generate_btn:
@@ -144,7 +180,6 @@ if st.session_state.is_generating and not st.session_state.itinerary_days:
     
     for current_day in range(1, st.session_state.total_days_val + 1):
         status_text.markdown(f"⏳ **正在利用大腦深度規劃：第 {current_day} 天...** (安全氣囊防禦機制運作中)")
-        # 🛡️ 內部即使遭遇異常，大腦也會回傳 Fallback 結構，此處不中斷、不 raise
         day_data: DayItinerary = st.session_state.brain.generate_day_itinerary(
             user_prompt=st.session_state.user_prompt_val, 
             day_idx=current_day, 
@@ -161,13 +196,12 @@ if st.session_state.is_generating and not st.session_state.itinerary_days:
     st.rerun() 
 
 if st.session_state.itinerary_days:
-    st.subheader("🗺️ 您專屬的客製化行程明細")
+    st.subheader("🗺️ 您專屬的客製化行程明細 (V3.2)")
     sorted_days = sorted(st.session_state.itinerary_days.keys())
     
     for day_counter in sorted_days:
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
         
-        # 🛡️ 動態判斷標題，若為保底資料則呈現警告橘色風格調性
         is_fallback = "【系統提示】" in day_data.day_title
         if is_fallback:
             st.markdown(f'<div class="day-header" style="background: linear-gradient(90deg, #c2410c 0%, #ea580c 100%);">⚠️ DETAILED PLAN · 第 {day_counter} 天 (點擊下方重新生成)</div>', unsafe_allow_html=True)
@@ -176,16 +210,18 @@ if st.session_state.itinerary_days:
         
         with st.expander(f"📌 點擊展開/收合今日概覽：{day_data.day_title}", expanded=True):
             
-            for spot in day_data.spots:
+            # 🛡️ 走訪當日所有景點
+            num_spots = len(day_data.spots)
+            for idx, spot in enumerate(day_data.spots):
                 spending_val = spot.estimated_spending if getattr(spot, 'estimated_spending', None) else "現場評估"
                 card_border = "#f59e0b" if is_fallback else "#ff4b4b"
                 
+                # 景點主體卡片 (已成功將交通欄位抽離)
                 st.markdown(f"""
                 <div class="spot-card" style="border-left: 5px solid {card_border};">
                     <span class="time-badge" style="color: {card_border};">⏱️ {spot.time}</span>   
                     <span class="spot-name">{spot.name}</span>
                     <p style="margin-top: 8px; color: #334155; line-height: 1.6;">{spot.description}</p>
-                    <div class="info-sub-block">🚇 <strong>交通指引：</strong> {spot.transportation}</div>
                     <div class="info-sub-block">🎫 <strong>購票/預約攻略：</strong> {spot.booking_info}</div>
                     <div class="info-sub-block" style="border-left: 3px solid #10b981; background-color: #f0fdf4;">💳 <strong>預估現場消費：</strong> {spending_val}</div>
                 </div>
@@ -196,7 +232,7 @@ if st.session_state.itinerary_days:
                         st.markdown("🍴 **此時段其他熱門餐廳/活動備案推薦：**")
                         for alt in spot.alternatives:
                             st.markdown(f" * **{alt.name}** —— {alt.desc}")
-                        st.markdown("<p style='margin-bottom:15px;'></p>", unsafe_allow_html=True)
+                        st.markdown("<p style='margin-bottom:10px;'></p>", unsafe_allow_html=True)
                 
                 has_ticket = getattr(spot, 'ticket_link_query', '').upper() != "FREE" and getattr(spot, 'ticket_link_query', '') != "" and spot.ticket_link_query != "無"
                 btn_cols = st.columns([6, 2, 2]) if has_ticket else st.columns([8, 2])
@@ -207,8 +243,41 @@ if st.session_state.itinerary_days:
                 if has_ticket:
                     with btn_cols[-1]:
                         st.link_button(f"🎫 線上購票 / 預約", f"https://www.google.com/search?q={urllib.parse.quote(spot.ticket_link_query)}", use_container_width=True)
-            
+                
+                # 🛠️ 【時間軸核心邏輯 A】: 如果目前不是最後一個景點，在下一個景點前插入「交通銜接橋樑」
+                if idx < num_spots - 1:
+                    trans_text = spot.transportation.strip() if spot.transportation else ""
+                    if trans_text and trans_text != "無" and trans_text != "FREE":
+                        icon = get_transport_icon(trans_text)
+                        st.markdown(f"""
+                        <div class="timeline-bridge">
+                            <div class="timeline-line"></div>
+                            <div class="timeline-capsule">{icon} {trans_text}</div>
+                            <div class="timeline-line"></div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        # 若無交通文字，則渲染純虛線過渡
+                        st.markdown('<div class="timeline-bridge"><div class="timeline-line" style="height:35px;"></div></div>', unsafe_allow_html=True)
+
+            # 🛠️ 【時間軸核心邏輯 B】: 在「最後一個景點」與「飯店卡片」之間，也搭起一條虛線銜接橋樑
+            last_spot = day_data.spots[-1] if day_data.spots else None
             hotel = day_data.recommended_hotel
+            
+            # 如果有最後一個景點，且當晚需要住宿（非最後一天搭機），則建立到飯店的橋樑
+            if last_spot and hotel and "無" not in hotel.name:
+                st.markdown("""
+                <div class="timeline-bridge">
+                    <div class="timeline-line"></div>
+                    <div class="timeline-capsule">🏨 前往今日精選飯店 Check-in</div>
+                    <div class="timeline-line"></div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                # 若為回國日不需飯店，則留下一段微縮過渡線
+                st.markdown('<div class="timeline-bridge"><div class="timeline-line" style="height:25px;"></div></div>', unsafe_allow_html=True)
+
+            # 住宿卡片展示區
             st.markdown(f"""
             <div class="hotel-card">
                 <span class="hotel-badge">🏠 當晚精選住宿推薦</span>   
@@ -225,14 +294,14 @@ if st.session_state.itinerary_days:
                         st.markdown(f" * **{h_alt.name}** —— {h_alt.desc}")
                     st.markdown("<p style='margin-bottom:15px;'></p>", unsafe_allow_html=True)
             
-            if hotel.search_keyword and hotel.search_keyword.upper() != "FREE":
+            if hotel.search_keyword and hotel.search_keyword.upper() != "FREE" and hotel.search_keyword != "無":
                 with st.columns([8, 2])[1]:
                     st.link_button(f"🛎️ 查詢主推房價", f"https://www.google.com/search?q={urllib.parse.quote(hotel.search_keyword)}", use_container_width=True)
 
             st.markdown(f'<div class="tip-box">💡 <strong>當日導遊貼心叮嚀：</strong><br/>{day_data.local_tips}</div>', unsafe_allow_html=True)
             st.divider()
             
-            st.markdown(f"🛠️ **覺得第 {day_counter} 天行程需要更換（或處於系統保底提示狀態需要重新產生）？**")
+            st.markdown(f"🛠️ **覺得第 {day_counter} 天行程需要更換或重產？**")
             placeholder_text = "例如：『請幫我重新完整產生這一天的行程』或『晚餐換成牛排』..." if is_fallback else "例如：『幫我把晚餐換成剛剛推薦的備案A』..."
             refine_input = st.text_input("請輸入修改或重新生成想法：", placeholder=placeholder_text, key=f"refine_input_{day_counter}")
             
@@ -245,11 +314,9 @@ if st.session_state.itinerary_days:
     with st.container():
         st.markdown('<div class="download-section">', unsafe_allow_html=True)
         st.subheader("💾 行程導出與時光機存檔備份 (.ZIP)")
-        st.markdown("<p style='font-size:0.92rem; color:#475569;'>下載的 .zip 壓縮包內含：(1) 手機開啟絕不亂碼的精美行程明細 .txt 檔 (2) 給系統專用的高穩定度還原 .json 檔。未來直接將此 .zip 檔拖入左側即可恢復現場。</p>", unsafe_allow_html=True)
         
         clean_prompt = re.sub(r'[^\w\s\u4e00-\u9fff]', ' ', st.session_state.user_prompt_val).split()
         file_base_name = f"{clean_prompt[0] if clean_prompt else '我的'}{len(sorted_days)}天_精緻旅遊行程"
-        
         zip_data = create_zip_backup(st.session_state.user_prompt_val, sorted_days)
         
         st.download_button(
