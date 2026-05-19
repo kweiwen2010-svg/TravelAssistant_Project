@@ -58,8 +58,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("✈️ 全球智慧旅遊助手 2.5 (時間軸優化精修版 V3.2.1)")
-st.caption("基於 Gemini 2.5 Flash 大腦 • 已精確限縮關鍵字並修正飯店過渡圖示")
+st.title("✈️ 全球智慧旅遊助手 2.5 (時間軸優化精修版 V3.2.2)")
+st.caption("基於 Gemini 2.5 Flash 大腦 • 已精確限縮關鍵字並修正飯店過渡圖示與引號語法")
 
 if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
 if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
@@ -69,7 +69,7 @@ if "total_days_val" not in st.session_state: st.session_state.total_days_val = 1
 if "uploader_version" not in st.session_state: st.session_state.uploader_version = 0
 
 def prepare_download_text(prompt, sorted_days_keys):
-    download_text = f"=== 全球智慧旅遊助手 專專屬行程 ===\n\n[使用者旅遊意向]\n{prompt}\n\n"
+    download_text = f"=== 全球智慧旅遊助手 專屬行程 ===\n\n[使用者旅遊意向]\n{prompt}\n\n"
     for cb in sorted_days_keys:
         d_obj: DayItinerary = st.session_state.itinerary_days[cb]
         download_text += f"-----------------------------------------\n📅 第 {cb} 天：{d_obj.day_title}\n-----------------------------------------\n"
@@ -114,8 +114,8 @@ def get_transport_icon(text: str) -> str:
 if not st.session_state.itinerary_days and not st.session_state.is_generating:
     st.markdown("""
     <div class="welcome-box">
-        <h4 style="margin-top:0; color: #166534;">💡 歡迎使用全球智慧旅遊助手 V3.2.1！</h4>
-        <p style="font-size: 0.98rem; color: #1e293b;">我們已完成機場到飯店的過度缺陷精修，並全面綁定行李箱 <b>🧳</b> 視覺：</p>
+        <h4 style="margin-top:0; color: #166534;">💡 歡迎使用全球智慧旅遊助手 V3.2.2！</h4>
+        <p style="font-size: 0.98rem; color: #1e293b;">我們已完成機場到飯店的過渡缺陷精修，並全面綁定行李箱 <b>🧳</b> 視覺：</p>
         <ol style="font-size: 0.95rem; color: #374151; line-height: 1.7;">
             <li>請看向網頁的 <b>⬅️ 左側邊欄（📋 旅遊意向設定與備份還原）</b>。</li>
             <li>在輸入框中確認或修改旅遊想法，點擊 <b>「🚀 開始全自動分段生成」</b>。</li>
@@ -153,7 +153,4 @@ with st.sidebar:
 
     st.divider()
     
-    user_prompt = st.text_area("輸入您的旅遊靈感與偏好：", value=st.session_state.user_prompt_val, height=150, disabled=st.session_state.is_generating)
-    total_days = st.number_input("規劃天數", min_value=1, max_value=15, value=st.session_state.total_days_val, disabled=st.session_state.is_generating)
-    
-    generate_btn = st.button("🚀 開始全自動
+    user_prompt = st.text_area("輸入您的旅遊靈感與偏好：", value=st.session_state.user
