@@ -10,9 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 from core.brain_25 import TravelBrain, DayItinerary
 
-st.set_page_config(page_title="全球智慧旅遊助手 2.5", page_icon="✈️", layout="wide")
+st.set_page_config(page_title="全球智慧旅遊助手 2.6", page_icon="✈️", layout="wide")
 
-# 🎨 注入交通時間軸與膠囊 CSS 樣式
 st.markdown("""
 <style>
     .welcome-box { background-color: #f0fdf4; padding: 22px; border-radius: 10px; border: 1px solid #bbf7d0; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
@@ -28,7 +27,6 @@ st.markdown("""
     .tip-box { background-color: #f8fafc; padding: 12px; border-radius: 8px; border: 1px dashed #cbd5e1; margin-top: 25px; }
     .download-section { background-color: #f1f5f9; padding: 20px; border-radius: 10px; margin-top: 30px; border: 1px solid #cbd5e1; }
 
-    /* 🛡️ 垂直時間軸與交通微縮膠囊外觀樣式 */
     .timeline-bridge {
         display: flex;
         flex-direction: column;
@@ -58,8 +56,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("✈️ 全球智慧旅遊助手 2.5 (時間軸優化精修版 V3.2.5)")
-st.caption("基於 Gemini 2.5 Flash 大腦 • 已將深度生成代碼精簡為單行安全呼句，防範括號缺陷")
+st.title("✈️ 全球智慧旅遊助手 2.6 (智慧交通調校版 V3.2.6)")
+st.caption("基於 Gemini 2.5 Flash 大腦 • 已整合大腦交通標準化鐵律與動態飯店對接橋接層")
 
 if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
 if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
@@ -113,8 +111,8 @@ def get_transport_icon(text: str) -> str:
 if not st.session_state.itinerary_days and not st.session_state.is_generating:
     st.markdown("""
     <div class="welcome-box">
-        <h4 style="margin-top:0; color: #166534;">💡 歡迎使用全球智慧旅遊助手 V3.2.5！</h4>
-        <p style="font-size: 0.98rem; color: #1e293b;">我們已將大自然生成代碼縮限為安全結構，系統回復正常：</p>
+        <h4 style="margin-top:0; color: #166534;">💡 歡迎使用全球智慧旅遊助手 V3.2.6！</h4>
+        <p style="font-size: 0.98rem; color: #1e293b;">我們已成功精優化大腦交通標準化鐵律與時間軸動態飯店銜接：</p>
         <ol style="font-size: 0.95rem; color: #374151; line-height: 1.7;">
             <li>請看向網頁的 <b>⬅️ 左側邊欄（📋 旅遊意向設定與備份還原）</b>。</li>
             <li>在輸入框中確認或修改旅遊想法，點擊 <b>「🚀 開始全自動分段生成」</b>。</li>
@@ -180,7 +178,6 @@ if st.session_state.is_generating and not st.session_state.itinerary_days:
     for current_day in range(1, st.session_state.total_days_val + 1):
         status_text.markdown(f"⏳ **正在利用大腦深度規劃：第 {current_day} 天...** (安全氣囊防禦機制運作中)")
         
-        # 🛡️ 【語法防禦修正點】：全面拉平為單行呼叫，百分之百防止括號因複製漏掉而斷掉
         st.session_state.itinerary_days[current_day] = st.session_state.brain.generate_day_itinerary(user_prompt=st.session_state.user_prompt_val, day_idx=current_day, total_days=st.session_state.total_days_val, previous_context=previous_summary_context)
         
         day_data: DayItinerary = st.session_state.itinerary_days[current_day]
@@ -193,7 +190,7 @@ if st.session_state.is_generating and not st.session_state.itinerary_days:
     st.rerun() 
 
 if st.session_state.itinerary_days:
-    st.subheader("🗺️ 您專屬的客製化行程明細 (V3.2.5)")
+    st.subheader("🗺️ 您專屬的客製化行程明細 (V3.2.6)")
     sorted_days = sorted(st.session_state.itinerary_days.keys())
     
     for day_counter in sorted_days:
@@ -258,14 +255,16 @@ if st.session_state.itinerary_days:
             last_spot = day_data.spots[-1] if day_data.spots else None
             hotel = day_data.recommended_hotel
             
+            # 🛡️ 【V3.2.6 銜接膠囊智慧修復點】將寫死的入住字串，改為動態嵌入推薦飯店的名字
             if last_spot and hotel and "無" not in hotel.name:
+                hotel_bridge_text = f"🧳 前往當晚精選住宿：【{hotel.name}】"
                 st.markdown("""
                 <div class="timeline-bridge">
                     <div class="timeline-line"></div>
-                    <div class="timeline-capsule">🧳 前往今日精選飯店 Check-in 入住</div>
+                    <div class="timeline-capsule">{text}</div>
                     <div class="timeline-line"></div>
                 </div>
-                """, unsafe_allow_html=True)
+                """.format(text=hotel_bridge_text), unsafe_allow_html=True)
             else:
                 st.markdown('<div class="timeline-bridge"><div class="timeline-line" style="height:25px;"></div></div>', unsafe_allow_html=True)
 
