@@ -131,21 +131,26 @@ class TravelBrain:
         )
         return fallback_itinerary
 
-    def refine_day_itinerary(self, current_day_data: DayItinerary, refine_instruction: str) -> DayItinerary:
+    # 🛡️ 【V3.2.8 核心修正點】：傳入 user_prompt，釘死旅遊目的地國家大前提，防範微調時迷路跑回台北
+    def refine_day_itinerary(self, user_prompt: str, current_day_data: DayItinerary, refine_instruction: str) -> DayItinerary:
         system_instruction = (
             "你是一位行動力極強、善解人意的旅遊行程修正專家。\n"
             "【鐵律 1】你必須完全使用『繁體中文（台灣，zh-TW）』進行回覆。\n"
             "【鐵律 2】修改費用時，請同樣遵守統一使用『新台幣 (TWD)』或加註台幣說明的原則。\n"
-            "【鐵律 3】鋼鐵覆寫特令（極度重要）：\n"
+            "【鐵律 3】大前提錨定律令（極度重要）：\n"
+            "         你必須時刻牢記整個旅程的『使用者原始旅遊偏好與目的地國家』！\n"
+            "         絕對不允許在微調時偏離原始目的地（例如原始要求是英國，微調時卻跑去台北或日本）。\n"
+            "【鐵律 4】鋼鐵覆寫特令：\n"
             "         你必須嚴格、無條件地服從使用者的『微調指令 (refine_instruction)』！\n"
-            "         如果使用者要求更換晚餐、更換某個景點、或指定入住某家備案飯店，你『必須』直接修改並替換掉\n"
-            "         原本 spots 清單或 recommended_hotel 中的內容。絕對不允許原封不動地傳回舊行程！\n"
-            "         如果原本的行程是保底提示或受阻數據，請直接忽略原本的提示，重新根據微調指令為使用者生出一份完美的當日行程。\n"
+            "         如果原本的行程是系統保底提示或受阻數據（例如標題含有系統提示、內容為連線受阻），\n"
+            "         這代表上一次生成失敗了。此時請你直接忽略原本的『連線受阻』錯誤內容，\n"
+            "         完全根據『使用者原始旅遊偏好（目的地國家）』與『微調指令』，從零開始為使用者重新編排一份完美的當日行程。\n"
             "         請展現你的修正誠意，將使用者想要的變更完美落實到輸出的 JSON 結構中。"
         )
         full_prompt = (
-            f"原行程內容（JSON）：\n{current_day_data.model_dump_json(indent=2)}\n"
-            f"使用者微調指令：\n{refine_instruction}\n"
+            f"🎯 使用者最初設定的旅遊偏好與目的地：{user_prompt}\n\n"
+            f"📋 當前這一天的舊行程內容（JSON）：\n{current_day_data.model_dump_json(indent=2)}\n"
+            f"🛠️ 使用者目前的微調/重產指令：\n{refine_instruction}\n"
         )
         
         config = types.GenerateContentConfig(
