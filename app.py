@@ -59,7 +59,7 @@ def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
     st.session_state.timezone_diff_val = tz_diff
 
 st.title("✈️ 全球智慧旅遊助手 2.5")
-st.markdown('<div class="welcome-box"><h4>🌐 V3.4.5 四大剛性預算精細版</h4>已成功將『交通費』與『餐飲門票』獨立解耦，並在全局完美引入『國際來回機票』預算估算！</div>', unsafe_allow_html=True)
+st.markdown('<div class="welcome-box"><h4>🌐 V3.4.6 四大維度UI完全校正版</h4>進度條、存檔機制與四大費用分配條已全面強制對齊！</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("⚙️ 旅遊核心設定")
@@ -80,6 +80,8 @@ with st.sidebar:
             st.session_state.user_prompt_val = ""
             st.session_state.is_generating = False
             st.rerun()
+            
+    progress_sidebar = st.empty()
 
 if btn_generate:
     st.session_state.itinerary_days = {}
@@ -92,6 +94,7 @@ if st.session_state.is_generating:
     current_done = len(st.session_state.itinerary_days)
     if current_done < target_total:
         next_day = current_done + 1
+        sidebar_progress_bar = progress_sidebar.progress(float(current_done) / float(target_total))
         context_str = "\n".join([f"Day {k}: {v.day_title}" for k, v in sorted(st.session_state.itinerary_days.items())])
         day_result = st.session_state.brain.generate_day_itinerary(
             st.session_state.user_prompt_val, target_total, next_day, context_str,
@@ -104,8 +107,10 @@ if st.session_state.is_generating:
         st.rerun()
     else:
         st.session_state.is_generating = False
+        progress_sidebar.success("🎉 全行程編排完成！")
         st.rerun()
 
+# 🎯 關鍵修正點：確保此區塊在任何有資料的狀態下皆完全獨立執行
 if st.session_state.itinerary_days:
     st.header(f"🗺️ 行程：{st.session_state.user_prompt_val}")
     
@@ -117,7 +122,7 @@ if st.session_state.itinerary_days:
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
         
-        # 🛡️ 提取四大核心費用並執行防呆轉型
+        # 提取四大費用與防呆轉換
         try: total_flight_cost += int(getattr(day_data, 'estimated_flight_cost', 0))
         except: pass
         try: total_hotel_cost += int(day_data.hotel.estimated_spending) if day_data.hotel.estimated_spending else 0
@@ -163,14 +168,29 @@ if st.session_state.itinerary_days:
         c5.metric("🍱 純餐飲與門票", f"NT$ {total_food_ticket_cost:,}", f"{food_pct:.1f}%")
         
         st.markdown("**📉 預算分配比例結構：**")
-        st.markdown(f"✈️ 國際機票占比 ({flight_pct:.1f}%)")
+        st.markdown(f"✈️ 國際機票明細 ({flight_pct:.1f}%)")
         st.progress(flight_pct / 100.0)
-        st.markdown(f"🏨 住宿花費占比 ({hotel_pct:.1f}%)")
+        st.markdown(f"🏨 住宿花費明細 ({hotel_pct:.1f}%)")
         st.progress(hotel_pct / 100.0)
-        st.markdown(f"🚇 當地交通占比 ({trans_pct:.1f}%)")
+        st.markdown(f"🚇 當地交通明細 ({trans_pct:.1f}%)")
         st.progress(trans_pct / 100.0)
-        st.markdown(f"🍱 純餐飲門票占比 ({food_pct:.1f}%)")
+        st.markdown(f"🍱 純餐飲門票明細 ({food_pct:.1f}%)")
         st.progress(food_pct / 100.0)
     else:
-        st.info("暫無費用支出數據。")
+        st.info("暫無費用支出數據（請點擊『啟動大腦生成』以更新大腦核心資料結構）。")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 💾 存檔導出區塊（已將排版完全拉出，100% 絕對顯示）
+    st.markdown('<div class="download-section">', unsafe_allow_html=True)
+    st.subheader("💾 行程導出與時光機存檔備份 (.ZIP)")
+    clean_prompt = re.sub(r'[^\w\s\u4e00-\u9fff]', ' ', st.session_state.user_prompt_val).split()
+    file_base_name = f"{clean_prompt[0] if clean_prompt else '我的專案行程'}_{st.session_state.total_days_val}天_精緻行程"
+    
+    export_dict = {"user_prompt": st.session_state.user_prompt_val, "total_days": st.session_state.total_days_val, "days_data": {str(k): v.model_dump() for k, v in st.session_state.itinerary_days.items()}}
+    json_string = json.dumps(export_dict, ensure_ascii=False, indent=2)
+    
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr("itinerary_backup.json", json_string.encode("utf-8"))
+    st.download_button(label="🎁 下載完整行程備份包 (.ZIP)", data=zip_buffer.getvalue(), file_name=f"{file_base_name}.zip", mime="application/zip", use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
