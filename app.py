@@ -14,26 +14,28 @@ st.set_page_config(page_title="全球智慧旅遊助手 2.5", page_icon="✈️"
 
 st.markdown("""
 <style>
-    /* 修正後的自動適應歡迎框：移除死板的固定白底，改用透明度與適應文字顏色 */
+    /* 修正後的自動適應歡迎框：適應手機端深淺色模式 */
     .welcome-box { 
         background-color: rgba(30, 41, 59, 0.05); 
         padding: 22px; 
         border-radius: 10px; 
         border: 1px solid rgba(148, 163, 184, 0.3); 
         margin-bottom: 25px;
-        color: inherit; /* 關鍵防爆：強制繼承系統當前字體顏色（黑或白） */
+        color: inherit; 
     }
-    /* 確保歡迎框內的標題也跟隨系統顏色 */
     .welcome-box h4 {
         color: inherit !important;
         margin-top: 0px;
     }
     .day-header { background: linear-gradient(90deg, #1e293b 0%, #334155 100%); color: white; padding: 12px 20px; border-radius: 6px; font-weight: bold; margin-top: 35px; }
-    .spot-card { background-color: #ffffff; padding: 18px; border-radius: 8px; border-left: 5px solid #ff4b4b; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-    .hotel-card { background-color: #f8fafc; padding: 18px; border-radius: 8px; border-left: 5px solid #3b82f6; margin-top: 20px; }
-    .trans-capsule { display: inline-block; background-color: #f1f5f9; color: #475569; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin: 8px 0; border: 1px solid #e2e8f0; }
-    .alt-box { background-color: #fffbeb; border: 1px dashed #fef3c7; padding: 12px 16px; border-radius: 6px; font-size: 0.9rem; margin-top: 10px; }
-    .download-section { background-color: #fafafa; border: 1px solid #eaeaea; padding: 20px; border-radius: 8px; margin-top: 40px; }
+    .spot-card { background-color: #ffffff; padding: 18px; border-radius: 8px; border-left: 5px solid #ff4b4b; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); color: #1e293b !important; }
+    .spot-card p, .spot-card span, .spot-card div { color: #1e293b !important; }
+    .hotel-card { background-color: #f8fafc; padding: 18px; border-radius: 8px; border-left: 5px solid #3b82f6; margin-top: 20px; color: #1e293b !important; }
+    .hotel-card p, .hotel-card span, .hotel-card div { color: #1e293b !important; }
+    .trans-capsule { display: inline-block; background-color: #f1f5f9; color: #475569 !important; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin: 8px 0; border: 1px solid #e2e8f0; }
+    .alt-box { background-color: #fffbeb; border: 1px dashed #fef3c7; padding: 12px 16px; border-radius: 6px; font-size: 0.9rem; margin-top: 10px; color: #78350f !important; }
+    .alt-box b, .alt-box span { color: #78350f !important; }
+    .download-section { border: 1px solid rgba(148, 163, 184, 0.3); padding: 20px; border-radius: 8px; margin-top: 40px; background-color: rgba(30, 41, 59, 0.02); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -45,13 +47,24 @@ def get_transport_icon(trans_str: str) -> str:
     if "火車" in trans_str or "🚄" in trans_str: return "🚄"
     return "🔄"
 
+# 初始化大腦與 Session 狀態
 if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
 if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
 if "user_prompt_val" not in st.session_state: st.session_state.user_prompt_val = ""
 if "total_days_val" not in st.session_state: st.session_state.total_days_val = 7
+if "is_generating" not in st.session_state: st.session_state.is_generating = False
+
+# 用於將核心參數存入 Session State 的輔助函數
+def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
+    st.session_state.user_prompt_val = prompt
+    st.session_state.total_days_val = days
+    st.session_state.start_country_val = country
+    st.session_state.departure_time_val = d_time
+    st.session_state.flight_hours_val = f_hours
+    st.session_state.timezone_diff_val = tz_diff
 
 st.title("✈️ 全球智慧旅遊助手 2.5")
-st.markdown('<div class="welcome-box"><h4>🌐 V3.4.2 物理時區引擎（防爆安全版）</h4>已完美串聯『飛行時間、起飛時段、目的地時差』。大腦將依物理公式自動判斷第 1 天是否過夜、需不需要住宿定錨，時光機回傳功能處於全鎖定穩定狀態。</div>', unsafe_allow_html=True)
+st.markdown('<div class="welcome-box"><h4>🌐 V3.4.3 斷點續傳防護版</h4>已成功將生成迴圈隔離。若在手機端因切換頁面或休眠導致中斷，只需重新點開網頁，大腦將自動識別斷點並繼續完成剩餘天數！</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("⚙️ 旅遊核心設定")
@@ -65,11 +78,13 @@ with st.sidebar:
     timezone_diff = st.number_input("🌐 目的地時差 (比台灣慢請填負數)：", min_value=-12.0, max_value=12.0, value=-6.0, step=1.0)
     
     col_gen, col_clear = st.columns(2)
-    with col_gen: btn_generate = st.button("🚀 啟動大腦生成", type="primary", use_container_width=True)
+    with col_gen: 
+        btn_generate = st.button("🚀 啟動大腦生成", type="primary", use_container_width=True, disabled=st.session_state.is_generating)
     with col_clear:
         if st.button("🧹 清空重置", type="secondary", use_container_width=True):
             st.session_state.itinerary_days = {}
             st.session_state.user_prompt_val = ""
+            st.session_state.is_generating = False
             if "last_uploaded_file_name" in st.session_state: del st.session_state.last_uploaded_file_name
             st.rerun()
             
@@ -86,24 +101,51 @@ with st.sidebar:
                             st.session_state.user_prompt_val = backup_data.get("user_prompt", "")
                             st.session_state.total_days_val = backup_data.get("total_days", 7)
                             st.session_state.itinerary_days = temp_days
+                            st.session_state.is_generating = False
                             st.session_state.last_uploaded_file_name = uploaded_file.name
                             st.success("✨ 行程已 100% 精準還原！")
                             st.rerun()
             except Exception as e: st.error(f"還原失敗：{str(e)}")
     progress_sidebar = st.empty()
 
+# 按鈕觸發：只鎖定狀態與清空舊資料，不直接跑迴圈
 if btn_generate:
-    st.session_state.user_prompt_val = user_prompt
-    st.session_state.total_days_val = total_days
     st.session_state.itinerary_days = {}
-    sidebar_progress_bar = progress_sidebar.progress(0.0)
-    for d in range(1, total_days + 1):
-        context_str = "\n".join([f"Day {k}: {v.day_title}" for k, v in st.session_state.itinerary_days.items()])
-        day_result = st.session_state.brain.generate_day_itinerary(user_prompt, total_days, d, context_str, start_country, departure_time, flight_hours, timezone_diff)
-        st.session_state.itinerary_days[d] = day_result
-        sidebar_progress_bar.progress(float(d) / float(total_days))
-    progress_sidebar.success("🎉 全行程編排完成！")
+    st.session_state.is_generating = True
+    capture_sidebar_inputs(user_prompt, total_days, start_country, departure_time, flight_hours, timezone_diff)
+    st.rerun()
 
+# 斷點續傳獨立控制引擎
+if st.session_state.is_generating:
+    target_total = st.session_state.total_days_val
+    current_done = len(st.session_state.itinerary_days)
+    
+    if current_done < target_total:
+        next_day = current_done + 1
+        sidebar_progress_bar = progress_sidebar.progress(float(current_done) / float(target_total))
+        
+        # 組裝前情提要，供大腦防鬼打牆比對
+        context_str = "\n".join([f"Day {k}: {v.day_title}" for k, v in sorted(st.session_state.itinerary_days.items())])
+        
+        # 單步精準生成
+        day_result = st.session_state.brain.generate_day_itinerary(
+            st.session_state.user_prompt_val, 
+            target_total, 
+            next_day, 
+            context_str, 
+            st.session_state.get('start_country_val', '台灣台北 (TPE)'), 
+            st.session_state.get('departure_time_val', '晚上 23:30'), 
+            st.session_state.get('flight_hours_val', 14.0), 
+            st.session_state.get('timezone_diff_val', -6.0)
+        )
+        st.session_state.itinerary_days[next_day] = day_result
+        st.rerun()  # 異步重整，原地復活跑下一天！
+    else:
+        st.session_state.is_generating = False
+        progress_sidebar.success("🎉 全行程編排完成！")
+        st.rerun()
+
+# 渲染輸出行程介面
 if st.session_state.itinerary_days:
     st.header(f"🗺️ 行程：{st.session_state.user_prompt_val}")
     for day_counter in sorted(st.session_state.itinerary_days.keys()):

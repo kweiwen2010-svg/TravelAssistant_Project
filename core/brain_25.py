@@ -44,11 +44,6 @@ class TravelBrain:
         self.model_name = "gemini-2.5-pro"
 
     def generate_day_itinerary(self, user_prompt: str, total_days: int, current_day: int, previous_days_context: str, start_country: str, departure_time: str, flight_hours: float, timezone_diff: float) -> DayItinerary:
-        """
-        物理時區定錨演算法 V3.4.2：精準推算落地時間與首晚飯店住宿之有無。
-        採用完全隔離的字串格式化，徹底杜絕大括號引起的 Python SyntaxError。
-        """
-        # 使用標準純字串，不使用 f-string，避免大括號衝突
         system_instruction = (
             "別名：老導遊物理時區引擎\n"
             "你是一位擁有30年帶團經驗的頂級全球資深星級老導遊。你現在要為使用者打造極致貼心、充滿鬆弛感的旅遊行程。\n"
@@ -63,29 +58,20 @@ class TravelBrain:
             "    - 旅客在第 1 天晚上就需要床位。此時【第 1 天的 hotel 欄位必須精準指名當晚入住飯店】！\n"
             "    - 且第 1 天落地後的行程，嚴格禁止安排景點，強制定錨為：『抵達機場 -> 前往飯店 Check-in -> 周邊輕食晚餐 -> 睡覺倒時差』。\n"
             "【鐵律 3】最後一天防禦：下午或傍晚強制搭機返國，hotel 欄位寫「無（今日搭機返家）」。\n"
-            "【鐵律 4】大交通規範：若遇跨城移動（車程 >= 2小時），允許早上 08:30 提前出發，並於交通欄位標記具體交通工具與班次資訊。"
+            "【鐵律 4】大交通規範：若遇跨城移動（車程 >= 2小時），允許早上 08:30 提前出發，並於交通欄位標記具體交通工具與班次資訊。\n"
+            "【鐵律 5】記憶排除防鬼打牆（核心升級）：你必須嚴格審閱下方的『前情提要資訊』。除非地理位置上有物理必要性的「再次順路路過與過夜」，否則嚴格禁止在不同日期重複編排完全相同的景點、餐廳或活動（例如去過萬神殿、馬可廣場，後面天數就必須開發全新替代地標），絕對禁止無腦鬼打牆！"
         )
 
-        # 用 .format 注入變數，安全隔離
         full_prompt = (
             "🛫 出發地：{0}\n"
-            "⏰ 第 1 天起飛時段：{1}\n"
+            "⏰ 第 1 天起飛時間點：{1}\n"
             "⏱️ 預估飛行總時間：{2} 小時\n"
             "🌐 目的地時差（慢/快台灣幾小時）：{3} 小時\n"
             "🎯 目的地與旅客偏好：{4}\n"
             "📅 規劃總天數：{5} 天\n"
             "📌 當前正在生成：第 {6} 天的行程\n"
-            "🧱 前情提要資訊（前幾天的行程大綱）：\n{7}"
-        ).format(
-            start_country, 
-            departure_time, 
-            flight_hours, 
-            timezone_diff, 
-            user_prompt, 
-            total_days, 
-            current_day, 
-            previous_days_context
-        )
+            "🧱 前情提要資訊（前幾天的行程大綱，請仔細比對，避免重複景點）：\n{7}"
+        ).format(start_country, departure_time, flight_hours, timezone_diff, user_prompt, total_days, current_day, previous_days_context)
 
         for attempt in range(3):
             try:
@@ -95,42 +81,20 @@ class TravelBrain:
                     response_mime_type="application/json",
                     response_schema=DayItinerary,
                 )
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=full_prompt,
-                    config=config,
-                )
+                response = self.client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
                 return DayItinerary.model_validate_json(response.text)
             except Exception as e:
-                if attempt == 2:
-                    return self.get_fallback_itinerary(current_day, str(e))
+                if attempt == 2: return self.get_fallback_itinerary(current_day, str(e))
                 time.sleep(1)
 
     def refine_day_itinerary(self, user_prompt: str, current_day_data: DayItinerary, refine_instruction: str) -> DayItinerary:
-        system_instruction = (
-            "你是一位資深老導遊，負責局部微調行程。請保持繁體中文與台幣計價，並嚴格遵循使用者的微調指令，產出新的 JSON 結構。"
-        )
-        full_prompt = "🎯 原始設定：{0}\n📋 原行程：{1}\n🛠️ 微調指令：{2}".format(
-            user_prompt, 
-            current_day_data.model_dump_json(), 
-            refine_instruction
-        )
-        
+        system_instruction = "你是一位資深老導遊，負責局部微調行程。請保持繁體中文與台幣計價，並嚴格遵循使用者的微調指令，產出新的 JSON 結構。"
+        full_prompt = "🎯 原始設定：{0}\n📋 原行程：{1}\n🛠️ 微調指令：{2}".format(user_prompt, current_day_data.model_dump_json(), refine_instruction)
         try:
-            config = types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.2,
-                response_mime_type="application/json",
-                response_schema=DayItinerary,
-            )
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=full_prompt,
-                config=config,
-            )
+            config = types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.2, response_mime_type="application/json", response_schema=DayItinerary)
+            response = self.client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
             return DayItinerary.model_validate_json(response.text)
-        except Exception:
-            return current_day_data
+        except Exception: return current_day_data
 
     def get_fallback_itinerary(self, day_num: int, reason: str) -> DayItinerary:
         return DayItinerary(
