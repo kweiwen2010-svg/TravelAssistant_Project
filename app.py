@@ -4,6 +4,7 @@ import os
 import re
 import io
 import json
+import zipfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,11 +43,13 @@ def get_transport_icon(trans_str: str) -> str:
     if "火車" in trans_str or "🚄" in trans_str: return "🚄"
     return "🔄"
 
+# 初始化所有狀態
 if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
 if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
 if "user_prompt_val" not in st.session_state: st.session_state.user_prompt_val = ""
 if "total_days_val" not in st.session_state: st.session_state.total_days_val = 7
 if "is_generating" not in st.session_state: st.session_state.is_generating = False
+if "uploader_key_counter" not in st.session_state: st.session_state.uploader_key_counter = 0
 
 def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
     st.session_state.user_prompt_val = prompt
@@ -57,11 +60,14 @@ def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
     st.session_state.timezone_diff_val = tz_diff
 
 st.title("✈️ 全球智慧旅遊助手 2.5")
-st.markdown('<div class="welcome-box"><h4>🌐 V3.4.8 剛性預算精算完全體</h4>每天行程預設折疊，國際機票改由左側手動微調，四大維度完美解耦！</div>', unsafe_allow_html=True)
+st.markdown('<div class="welcome-box"><h4>🌐 V3.5.0 存檔打包完全體</h4>修正歷史上傳重置失效 bug，回復 ZIP 雙檔案導出（內含 JSON 數據與 TXT 詳盡文字攻略）！</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("⏳ 歷史行程時光機")
-    uploaded_file = st.file_uploader("📤 載入歷史行程存檔 (.json)", type=["json"])
+    # 🌟 透過動態變動 key 來強力清除歷史上傳暫存
+    uploader_key = f"json_uploader_reset_id_{st.session_state.uploader_key_counter}"
+    uploaded_file = st.file_uploader("📤 載入歷史行程存檔 (.json)", type=["json"], key=uploader_key)
+    
     if uploaded_file is not None:
         try:
             file_data = json.load(uploaded_file)
@@ -87,7 +93,6 @@ with st.sidebar:
     flight_hours = st.number_input("⏱️ 飛行總時間 (小時)：", min_value=0.5, max_value=40.0, value=14.0, step=0.5)
     timezone_diff = st.number_input("🌐 目的地時差 (比台灣慢請填負數)：", min_value=-12.0, max_value=12.0, value=-6.0, step=1.0)
     
-    # 🌟 方案 2 關鍵修正：直接在側邊欄加上機票手動輸入框，避開大腦估算漏失風險
     st.write("---")
     st.subheader("💰 剛性預算手動補正")
     sidebar_flight_cost = st.number_input("✈️ 國際機票總費用 (NT$ / 人)：", min_value=0, value=35000, step=500)
@@ -96,9 +101,12 @@ with st.sidebar:
     with col_gen: btn_generate = st.button("🚀 啟動大腦生成", type="primary", use_container_width=True, disabled=st.session_state.is_generating)
     with col_clear:
         if st.button("🧹 清空重置", type="secondary", use_container_width=True):
+            # 清除所有資料狀態
             st.session_state.itinerary_days = {}
             st.session_state.user_prompt_val = ""
             st.session_state.is_generating = False
+            # 🌟 核心修正：將計數器加1，徹底強制洗掉 file_uploader 的上傳暫存
+            st.session_state.uploader_key_counter += 1
             st.rerun()
             
     progress_sidebar = st.empty()
@@ -107,8 +115,9 @@ with st.sidebar:
         st.write("---")
         st.header("💾 行程備份導出")
         clean_prompt = re.sub(r'[^\w\s\u4e00-\u9fff]', ' ', st.session_state.user_prompt_val).split()
-        file_base_name = f"{clean_prompt[0] if clean_prompt else '我的專案行程'}_{len(st.session_state.itinerary_days)}天_行程存檔"
+        file_base_name = f"{clean_prompt[0] if clean_prompt else '我的專案行程'}_{len(st.session_state.itinerary_days)}天_行程包"
         
+        # 1. 建立給系統讀取的 JSON 字串
         export_dict = {
             "user_prompt": st.session_state.user_prompt_val,
             "sidebar_flight_cost": sidebar_flight_cost,
@@ -116,11 +125,61 @@ with st.sidebar:
         }
         json_string = json.dumps(export_dict, ensure_ascii=False, indent=2)
         
+        # 2. 建立給使用者看的純文字 TXT 簡介攻略
+        txt_output = f"🗺️ 旅遊行程：{st.session_state.user_prompt_val}\n"
+        txt_output += f"📅 總天數：{len(st.session_state.itinerary_days)} 天\n"
+        txt_output += "="*50 + "\n\n"
+        
+        total_flight_cost = int(sidebar_flight_cost)
+        total_hotel_cost = 0
+        total_local_transport_cost = 0
+        total_food_ticket_cost = 0
+        
+        day_details_text = ""
+        for day_counter in sorted(st.session_state.itinerary_days.keys()):
+            day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
+            day_details_text += f"📅 第 {day_counter} 天：{day_data.day_title}\n"
+            
+            try: total_hotel_cost += int(day_data.hotel.estimated_spending) if day_data.hotel.estimated_spending else 0
+            except: pass
+            
+            for spot in day_data.spots:
+                spot_t_cost = getattr(spot, 'estimated_transport_cost', 0)
+                try: total_food_ticket_cost += int(spot.estimated_spending) if spot.estimated_spending else 0
+                except: pass
+                try: total_local_transport_cost += int(spot_t_cost)
+                except: pass
+                
+                day_details_text += f"  ⏱️ {spot.time} - {spot.name}\n"
+                day_details_text += f"    📌 簡介：{spot.description}\n"
+                day_details_text += f"    🚌 交通方式：{spot.transportation}\n"
+                day_details_text += f"    🎫 門票花費：NT$ {spot.estimated_spending:,} | 車資：NT$ {spot_t_cost:,}\n\n"
+            
+            day_details_text += f"  🏨 住宿建議：{day_data.hotel.name}\n"
+            day_details_text += f"    📌 說明：{day_data.hotel.description}\n"
+            day_details_text += f"    💳 住宿花費：NT$ {day_data.hotel.estimated_spending:,} / 晚\n"
+            day_details_text += "-"*40 + "\n\n"
+            
+        total_rigid_cost = total_flight_cost + total_hotel_cost + total_local_transport_cost + total_food_ticket_cost
+        txt_output += f"💰 剛性預算精算總計：NT$ {total_rigid_cost:,}\n"
+        txt_output += f"  ✈️ 國際機票總計：NT$ {total_flight_cost:,}\n"
+        txt_output += f"  🏨 住宿總預算：NT$ {total_hotel_cost:,}\n"
+        txt_output += f"  🚇 當地交通車資：NT$ {total_local_transport_cost:,}\n"
+        txt_output += f"  🍱 純餐飲與門票：NT$ {total_food_ticket_cost:,}\n"
+        txt_output += "="*50 + "\n\n"
+        txt_output += day_details_text
+
+        # 3. 🌟 使用記憶體式 BytesIO 進行內建 ZIP 即時打包
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.writestr(f"{file_base_name}.json", json_string.encode("utf-8"))
+            zip_file.writestr(f"{file_base_name}.txt", txt_output.encode("utf-8"))
+            
         st.download_button(
-            label="💾 下載當前行程存檔 (.json)",
-            data=json_string.encode("utf-8"),
-            file_name=f"{file_base_name}.json",
-            mime="application/json",
+            label="📦 下載完整行程壓縮包 (.zip)",
+            data=zip_buffer.getvalue(),
+            file_name=f"{file_base_name}.zip",
+            mime="application/zip",
             use_container_width=True
         )
 
@@ -154,13 +213,11 @@ if st.session_state.is_generating:
 if st.session_state.itinerary_days:
     st.header(f"🗺️ 行程：{st.session_state.user_prompt_val}")
     
-    # 🌟 方案 2 核心更動：國際機票花費直接等於左側邊欄輸入的值
     total_flight_cost = int(sidebar_flight_cost)
     total_hotel_cost = 0
     total_local_transport_cost = 0
     total_food_ticket_cost = 0
     
-    # 累加其餘三大維度費用
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
         try: total_hotel_cost += int(day_data.hotel.estimated_spending) if day_data.hotel.estimated_spending else 0
@@ -171,7 +228,6 @@ if st.session_state.itinerary_days:
             try: total_local_transport_cost += int(getattr(spot, 'estimated_transport_cost', 0))
             except: pass
 
-    # 💰 四大剛性預算精算區塊
     total_rigid_cost = total_flight_cost + total_hotel_cost + total_local_transport_cost + total_food_ticket_cost
     st.markdown('<div class="budget-box">', unsafe_allow_html=True)
     st.subheader("💰 本次旅遊剛性預算精算概估 (四大維度解耦版)")
@@ -202,7 +258,6 @@ if st.session_state.itinerary_days:
         st.info("暫無費用支出數據。")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 📅 每日行程區塊（預設折疊）
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
         
