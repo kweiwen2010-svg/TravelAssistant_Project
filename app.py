@@ -4,7 +4,6 @@ import os
 import re
 import io
 import json
-import zipfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -31,7 +30,6 @@ st.markdown("""
     .trans-capsule { display: inline-block; background-color: #f1f5f9; color: #475569 !important; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin: 8px 0; border: 1px solid #e2e8f0; }
     .alt-box { background-color: #fffbeb; border: 1px dashed #fef3c7; padding: 12px 16px; border-radius: 6px; font-size: 0.9rem; margin-top: 10px; color: #78350f !important; }
     .alt-box b, .alt-box span { color: #78350f !important; }
-    .download-section { border: 1px solid rgba(148, 163, 184, 0.3); padding: 20px; border-radius: 8px; margin-top: 40px; background-color: rgba(30, 41, 59, 0.02); }
     .budget-box { background-color: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); padding: 20px; border-radius: 8px; margin-top: 30px; }
 </style>
 """, unsafe_allow_html=True)
@@ -59,9 +57,27 @@ def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
     st.session_state.timezone_diff_val = tz_diff
 
 st.title("✈️ 全球智慧旅遊助手 2.5")
-st.markdown('<div class="welcome-box"><h4>🌐 V3.4.6 四大維度UI完全校正版</h4>進度條、存檔機制與四大費用分配條已全面強制對齊！</div>', unsafe_allow_html=True)
+st.markdown('<div class="welcome-box"><h4>🌐 V3.4.7 行程折疊與時光機完全體</h4>行程預設不展開，側邊欄完美整合『上傳還原』與『一鍵純 JSON 存檔』！</div>', unsafe_allow_html=True)
 
 with st.sidebar:
+    st.header("⏳ 歷史行程時光機")
+    # 🌟 頂部歷史檔案上傳區 (方案 A：只還原行程，不干擾輸入框)
+    uploaded_file = st.file_uploader("📤 載入歷史行程存檔 (.json)", type=["json"])
+    if uploaded_file is not None:
+        try:
+            file_data = json.load(uploaded_file)
+            if "days_data" in file_data:
+                restored_days = {}
+                for k, v in file_data["days_data"].items():
+                    restored_days[int(k)] = DayItinerary.model_validate(v)
+                st.session_state.itinerary_days = restored_days
+                if "user_prompt" in file_data:
+                    st.session_state.user_prompt_val = file_data["user_prompt"]
+                st.success("💾 歷史行程已成功無損還原！")
+        except Exception as e:
+            st.error(f"解析存檔失敗，請確認檔案格式是否正確。")
+
+    st.write("---")
     st.header("⚙️ 旅遊核心設定")
     user_prompt = st.text_area("🔮 旅遊意向：", value="瑞士 人文 美食 購物 古蹟")
     total_days = st.number_input("📅 總天數：", min_value=1, max_value=30, value=7, step=1)
@@ -82,6 +98,27 @@ with st.sidebar:
             st.rerun()
             
     progress_sidebar = st.empty()
+
+    # 🌟 存檔導出區：直接生成純 .json 下載按鈕，放到重置按鈕下方
+    if st.session_state.itinerary_days:
+        st.write("---")
+        st.header("💾 行程備份導出")
+        clean_prompt = re.sub(r'[^\w\s\u4e00-\u9fff]', ' ', st.session_state.user_prompt_val).split()
+        file_base_name = f"{clean_prompt[0] if clean_prompt else '我的專案行程'}_{len(st.session_state.itinerary_days)}天_行程存檔"
+        
+        export_dict = {
+            "user_prompt": st.session_state.user_prompt_val,
+            "days_data": {str(k): v.model_dump() for k, v in st.session_state.itinerary_days.items()}
+        }
+        json_string = json.dumps(export_dict, ensure_ascii=False, indent=2)
+        
+        st.download_button(
+            label="💾 下載當前行程存檔 (.json)",
+            data=json_string.encode("utf-8"),
+            file_name=f"{file_base_name}.json",
+            mime="application/json",
+            use_container_width=True
+        )
 
 if btn_generate:
     st.session_state.itinerary_days = {}
@@ -110,7 +147,6 @@ if st.session_state.is_generating:
         progress_sidebar.success("🎉 全行程編排完成！")
         st.rerun()
 
-# 🎯 關鍵修正點：確保此區塊在任何有資料的狀態下皆完全獨立執行
 if st.session_state.itinerary_days:
     st.header(f"🗺️ 行程：{st.session_state.user_prompt_val}")
     
@@ -119,40 +155,23 @@ if st.session_state.itinerary_days:
     total_local_transport_cost = 0
     total_food_ticket_cost = 0
     
+    # 先撈取與加總四大費用數據
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
-        
-        # 提取四大費用與防呆轉換
         try: total_flight_cost += int(getattr(day_data, 'estimated_flight_cost', 0))
         except: pass
         try: total_hotel_cost += int(day_data.hotel.estimated_spending) if day_data.hotel.estimated_spending else 0
         except: pass
-        
         for spot in day_data.spots:
             try: total_food_ticket_cost += int(spot.estimated_spending) if spot.estimated_spending else 0
             except: pass
             try: total_local_transport_cost += int(getattr(spot, 'estimated_transport_cost', 0))
             except: pass
-        
-        with st.expander(f"📅 第 {day_counter} 天：{day_data.day_title}", expanded=True):
-            st.markdown(f'<div class="day-header">📅 第 {day_counter} 天：{day_data.day_title}</div>', unsafe_allow_html=True)
-            for spot in day_data.spots:
-                spot_t_cost = getattr(spot, 'estimated_transport_cost', 0)
-                st.markdown(f'<div class="spot-card"><span style="font-weight: bold; color: #1e293b;">⏱️ {spot.time} - {spot.name}</span><p style="color: #475569; font-size: 0.95rem; margin-top: 6px;">{spot.description}</p><div class="trans-capsule">{get_transport_icon(spot.transportation)} {spot.transportation}</div><div style="font-size: 0.88rem; color: #64748b;">🎫 <b>購票：</b>{spot.booking_info} | 🍱 <b>純餐飲門票：</b>NT$ {spot.estimated_spending:,} | 🚇 <b>車資支出：</b>NT$ {spot_t_cost:,}</div></div>', unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
-                with col1: st.link_button(f"🗺️ Google Maps: {spot.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(spot.map_keyword)}", use_container_width=True)
-                with col2:
-                    if spot.ticket_link_query != "FREE": st.link_button(f"🎫 搜尋購票連結", f"https://www.google.com/search?q={urllib.parse.quote(spot.ticket_link_query)}", use_container_width=True)
-            
-            hotel = day_data.hotel
-            has_hotel = "無（" not in hotel.name
-            st.markdown(f'<div class="hotel-card" style="border-left-color: {"#3b82f6" if has_hotel else "#94a3b8"}; background-color: {"#f8fafc" if has_hotel else "#f1f5f9"};"><span style="font-weight: bold; color: {"#1e3a8a" if has_hotel else "#475569"};">🏨 下榻建議：{hotel.name}</span><p style="color: #334155; font-size: 0.95rem; margin-top: 6px;">{hotel.description}</p><div style="font-size: 0.88rem;">ℹ️ {hotel.booking_info} | 💳 每晚：NT$ {hotel.estimated_spending:,}</div></div>', unsafe_allow_html=True)
-            if has_hotel: st.link_button(f"🗺️ 地圖查看飯店：{hotel.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(hotel.map_keyword)}", use_container_width=True)
 
-    # 💰 四大剛性預算精算視覺化區塊
+    # 💰 四大剛性預算精算區塊（置頂顯示，一目了然）
     total_rigid_cost = total_flight_cost + total_hotel_cost + total_local_transport_cost + total_food_ticket_cost
     st.markdown('<div class="budget-box">', unsafe_allow_html=True)
-    st.subheader("💰 本次旅遊剛性預算精算概估（四大維度解耦）")
+    st.subheader("💰 本次旅遊剛性預算精算概估")
     
     if total_rigid_cost > 0:
         flight_pct = (total_flight_cost / total_rigid_cost) * 100
@@ -177,20 +196,24 @@ if st.session_state.itinerary_days:
         st.markdown(f"🍱 純餐飲門票明細 ({food_pct:.1f}%)")
         st.progress(food_pct / 100.0)
     else:
-        st.info("暫無費用支出數據（請點擊『啟動大腦生成』以更新大腦核心資料結構）。")
+        st.info("暫無費用支出數據。")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 💾 存檔導出區塊（已將排版完全拉出，100% 絕對顯示）
-    st.markdown('<div class="download-section">', unsafe_allow_html=True)
-    st.subheader("💾 行程導出與時光機存檔備份 (.ZIP)")
-    clean_prompt = re.sub(r'[^\w\s\u4e00-\u9fff]', ' ', st.session_state.user_prompt_val).split()
-    file_base_name = f"{clean_prompt[0] if clean_prompt else '我的專案行程'}_{st.session_state.total_days_val}天_精緻行程"
-    
-    export_dict = {"user_prompt": st.session_state.user_prompt_val, "total_days": st.session_state.total_days_val, "days_data": {str(k): v.model_dump() for k, v in st.session_state.itinerary_days.items()}}
-    json_string = json.dumps(export_dict, ensure_ascii=False, indent=2)
-    
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        zip_file.writestr("itinerary_backup.json", json_string.encode("utf-8"))
-    st.download_button(label="🎁 下載完整行程備份包 (.ZIP)", data=zip_buffer.getvalue(), file_name=f"{file_base_name}.zip", mime="application/zip", use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 📅 每日行程區塊：🌟 關鍵修正在這，將 expanded 改為 False，預設折疊不展開
+    for day_counter in sorted(st.session_state.itinerary_days.keys()):
+        day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
+        
+        with st.expander(f"📅 第 {day_counter} 天：{day_data.day_title}", expanded=False):
+            st.markdown(f'<div class="day-header">📅 第 {day_counter} 天：{day_data.day_title}</div>', unsafe_allow_html=True)
+            for spot in day_data.spots:
+                spot_t_cost = getattr(spot, 'estimated_transport_cost', 0)
+                st.markdown(f'<div class="spot-card"><span style="font-weight: bold; color: #1e293b;">⏱️ {spot.time} - {spot.name}</span><p style="color: #475569; font-size: 0.95rem; margin-top: 6px;">{spot.description}</p><div class="trans-capsule">{get_transport_icon(spot.transportation)} {spot.transportation}</div><div style="font-size: 0.88rem; color: #64748b;">🎫 <b>購票：</b>{spot.booking_info} | 🍱 <b>純餐飲門票：</b>NT$ {spot.estimated_spending:,} | 🚇 <b>車資支出：</b>NT$ {spot_t_cost:,}</div></div>', unsafe_allow_html=True)
+                col1, col2 = st.columns(2)
+                with col1: st.link_button(f"🗺️ Google Maps: {spot.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(spot.map_keyword)}", use_container_width=True)
+                with col2:
+                    if spot.ticket_link_query != "FREE": st.link_button(f"🎫 搜尋購票連結", f"https://www.google.com/search?q={urllib.parse.quote(spot.ticket_link_query)}", use_container_width=True)
+            
+            hotel = day_data.hotel
+            has_hotel = "無（" not in hotel.name
+            st.markdown(f'<div class="hotel-card" style="border-left-color: {"#3b82f6" if has_hotel else "#94a3b8"}; background-color: {"#f8fafc" if has_hotel else "#f1f5f9"};"><span style="font-weight: bold; color: {"#1e3a8a" if has_hotel else "#475569"};">🏨 下榻建議：{hotel.name}</span><p style="color: #334155; font-size: 0.95rem; margin-top: 6px;">{hotel.description}</p><div style="font-size: 0.88rem;">ℹ️ {hotel.booking_info} | 💳 每晚：NT$ {hotel.estimated_spending:,}</div></div>', unsafe_allow_html=True)
+            if has_hotel: st.link_button(f"🗺️ 地圖查看飯店：{hotel.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(hotel.map_keyword)}", use_container_width=True)
