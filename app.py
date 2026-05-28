@@ -12,17 +12,19 @@ from core.brain_25 import TravelBrain, DayItinerary
 
 st.set_page_config(page_title="全球智慧旅遊助手 2.5", page_icon="✈️", layout="wide")
 
+# 手機端專屬緊湊型 CSS 優化
 st.markdown("""
 <style>
-    .welcome-box { background-color: rgba(30, 41, 59, 0.05); padding: 22px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.3); margin-bottom: 25px; color: inherit; }
+    .welcome-box { background-color: rgba(30, 41, 59, 0.05); padding: 16px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.3); margin-bottom: 15px; color: inherit; }
     .welcome-box h4 { color: inherit !important; margin-top: 0px; }
-    .day-header { background: linear-gradient(90deg, #1e293b 0%, #334155 100%); color: white; padding: 12px 20px; border-radius: 6px; font-weight: bold; margin-top: 35px; }
-    .spot-card { background-color: #ffffff; padding: 18px; border-radius: 8px; border-left: 5px solid #ff4b4b; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); color: #1e293b !important; }
+    .day-header { background: linear-gradient(90deg, #1e293b 0%, #334155 100%); color: white; padding: 10px 16px; border-radius: 6px; font-weight: bold; margin-top: 25px; }
+    .spot-card { background-color: #ffffff; padding: 14px; border-radius: 8px; border-left: 5px solid #ff4b4b; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); color: #1e293b !important; }
     .spot-card p, .spot-card span, .spot-card div { color: #1e293b !important; }
-    .hotel-card { background-color: #f8fafc; padding: 18px; border-radius: 8px; border-left: 5px solid #3b82f6; margin-top: 20px; color: #1e293b !important; }
+    .hotel-card { background-color: #f8fafc; padding: 14px; border-radius: 8px; border-left: 5px solid #3b82f6; margin-top: 15px; color: #1e293b !important; }
     .hotel-card p, .hotel-card span, .hotel-card div { color: #1e293b !important; }
-    .trans-capsule { display: inline-block; background-color: #f1f5f9; color: #475569 !important; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin: 8px 0; border: 1px solid #e2e8f0; }
-    .budget-box { background-color: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); padding: 20px; border-radius: 8px; margin-top: 30px; }
+    .trans-capsule { display: inline-block; background-color: #f1f5f9; color: #475569 !important; padding: 3px 10px; border-radius: 20px; font-size: 0.82rem; margin: 6px 0; border: 1px solid #e2e8f0; }
+    .budget-box { background-color: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); padding: 15px; border-radius: 8px; margin-top: 20px; }
+    .stButton button { width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -43,8 +45,7 @@ def safe_int(val) -> int:
     except:
         return 0
 
-# 狀態初始化
-if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
+# 【優化點 1】：狀態初始化，移除最上層的 TravelBrain() 避免閃退
 if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
 if "user_prompt_val" not in st.session_state: st.session_state.user_prompt_val = ""
 if "total_days_val" not in st.session_state: st.session_state.total_days_val = 7
@@ -116,7 +117,6 @@ with st.sidebar:
         
         st.download_button(label="📦 下載當前行程存檔 (.zip)", data=zip_buffer.getvalue(), file_name=f"{file_base_name}.zip", mime="application/zip", use_container_width=True)
 
-# 狀態觸發與遞迴步進生成核心
 if btn_generate:
     st.session_state.itinerary_days = {}
     st.session_state.is_generating = True
@@ -134,24 +134,37 @@ if st.session_state.is_generating:
     if current_done < target_total:
         next_day = current_done + 1
         sidebar_progress_bar = progress_sidebar.progress(float(current_done) / float(target_total))
-        
-        # 核心記憶線：將前幾天的天數與標題串接，強迫大腦保持時空連貫
         context_str = "\n".join([f"Day {k}: {v.day_title}" for k, v in sorted(st.session_state.itinerary_days.items())])
         
-        day_result = st.session_state.brain.generate_day_itinerary(
-            st.session_state.user_prompt_val, target_total, next_day, context_str,
-            st.session_state.get('start_country_val', '台灣台北 (TPE)'), st.session_state.get('departure_time_val', '晚上 23:30'),
-            st.session_state.get('flight_hours_val', 14.0), st.session_state.get('timezone_diff_val', -6.0)
-        )
-        st.session_state.itinerary_days[next_day] = day_result
-        st.rerun()
+        # 【優化點 2】：安全初始化大腦，並在異常時給出明確提示而非黑畫面
+        try:
+            brain = TravelBrain()
+            day_result = brain.generate_day_itinerary(
+                st.session_state.user_prompt_val, target_total, next_day, context_str,
+                st.session_state.get('start_country_val', '台灣台北 (TPE)'), st.session_state.get('departure_time_val', '晚上 23:30'),
+                st.session_state.get('flight_hours_val', 14.0), st.session_state.get('timezone_diff_val', -6.0)
+            )
+            st.session_state.itinerary_days[next_day] = day_result
+            st.rerun()
+        except Exception as e:
+            st.session_state.is_generating = False
+            st.error(f"❌ 雲端生成發生錯誤：{str(e)}。請確認後台 Secrets 的 GEMINI_API_KEY 是否填寫正確！")
+            st.stop()
     else:
         st.session_state.is_generating = False
         st.rerun()
 
-# 渲染看板與折疊卡片
+# 預設歡迎畫面防全黑
+if not st.session_state.itinerary_days:
+    st.markdown("""
+    <div class="welcome-box">
+        <h4>🌍 全球智慧旅遊助手 2.5</h4>
+        <p>歡迎使用！請於左側邊欄輸入您的旅遊意向（或貼上旅行社行程範本），並點擊「🚀 啟動大腦生成」開始規劃。</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 if st.session_state.itinerary_days:
-    st.header(f"🗺️ 行程：{st.session_state.user_prompt_val[:20]}...")
+    st.header(f"🗺️ 行程：{st.session_state.user_prompt_val[:15]}...")
     total_flight_cost = safe_int(sidebar_flight_cost)
     total_hotel_cost = 0
     total_local_transport_cost = 0
@@ -170,22 +183,26 @@ if st.session_state.itinerary_days:
 
     total_rigid_cost = total_flight_cost + total_hotel_cost + total_local_transport_cost + total_food_ticket_cost
     st.markdown('<div class="budget-box">', unsafe_allow_html=True)
-    st.subheader("💰 本次旅遊剛性預算精算概估 (四大維度全面解耦)")
+    st.subheader("💰 本次旅遊剛性預算精算概估")
     if total_rigid_cost > 0:
         flight_pct = (total_flight_cost / total_rigid_cost) * 100
         hotel_pct = (total_hotel_cost / total_rigid_cost) * 100
         trans_pct = (total_local_transport_cost / total_rigid_cost) * 100
         food_pct = (total_food_ticket_cost / total_rigid_cost) * 100
         
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("📊 預估剛性總花費", f"NT$ {total_rigid_cost:,}")
-        c2.metric("✈️ 國際機票總計", f"NT$ {total_flight_cost:,}", f"{flight_pct:.1f}%")
-        c3.metric("🏨 住宿總預算", f"NT$ {total_hotel_cost:,}", f"{hotel_pct:.1f}%")
-        c4.metric("🚇 當地交通车資", f"NT$ {total_local_transport_cost:,}", f"{trans_pct:.1f}%")
-        c5.metric("🍱 純餐飲與門票", f"NT$ {total_food_ticket_cost:,}", f"{food_pct:.1f}%")
+        st.metric("📊 預估剛性總花費", f"NT$ {total_rigid_cost:,}")
+        
+        st.write("---")
+        sub_col1, sub_col2 = st.columns(2)
+        with sub_col1:
+            st.metric("✈️ 國際機票總計", f"NT$ {total_flight_cost:,}", f"{flight_pct:.1f}%")
+            st.metric("🚇 當地交通車資", f"NT$ {total_local_transport_cost:,}", f"{trans_pct:.1f}%")
+        with sub_col2:
+            st.metric("🏨 住宿總預算", f"NT$ {total_hotel_cost:,}", f"{hotel_pct:.1f}%")
+            st.metric("🍱 純餐飲與門票", f"NT$ {total_food_ticket_cost:,}", f"{food_pct:.1f}%")
+            
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 依序渲染每天的卡片，預設 expanded=False 優化手機單手操作
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
         with st.expander(f"📅 第 {day_counter} 天：{day_data.day_title}", expanded=False):
@@ -193,10 +210,12 @@ if st.session_state.itinerary_days:
             for spot in day_data.spots:
                 spot_t_cost = safe_int(getattr(spot, 'estimated_transport_cost', None) or getattr(spot, 'transport_cost', None) or getattr(spot, 'estimated_transportation_cost', 0))
                 st.markdown(f'<div class="spot-card"><span style="font-weight: bold; color: #1e293b;">⏱️ {spot.time} - {spot.name}</span><p style="color: #475569; font-size: 0.95rem; margin-top: 6px;">{spot.description}</p><div class="trans-capsule">{get_transport_icon(spot.transportation)} {spot.transportation}</div><div style="font-size: 0.88rem; color: #64748b;">🎫 <b>購票：</b>{spot.booking_info} | 🍱 <b>純餐飲門票：</b>NT$ {safe_int(spot.estimated_spending):,} | 🚇 <b>車資支出：</b>NT$ {spot_t_cost:,}</div></div>', unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
-                with col1: st.link_button(f"🗺️ Maps: {spot.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(spot.map_keyword)}", use_container_width=True)
-                with col2:
-                    if spot.ticket_link_query != "FREE": st.link_button(f"🎫 搜尋購票", f"https://www.google.com/search?q={urllib.parse.quote(spot.ticket_link_query)}", use_container_width=True)
+                
+                st.link_button(f"🗺️ Maps: {spot.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(spot.map_keyword)}", use_container_width=True)
+                if spot.ticket_link_query != "FREE":
+                    st.link_button(f"🎫 搜尋購票連結", f"https://www.google.com/search?q={urllib.parse.quote(spot.ticket_link_query)}", use_container_width=True)
+                st.write("") 
+                    
             hotel = day_data.hotel
             h_spending = safe_int(getattr(hotel, 'estimated_spending', 0) or getattr(hotel, 'estimated_cost', 0))
             st.markdown(f'<div class="hotel-card"><span style="font-weight: bold; color: #1e3a8a;">🏨 下榻建議：{hotel.name}</span><p style="color: #334155; font-size: 0.95rem; margin-top: 6px;">{hotel.description}</p><div style="font-size: 0.88rem;">ℹ️ {hotel.booking_info} | 💳 每晚：NT$ {h_spending:,}</div></div>', unsafe_allow_html=True)
