@@ -1,123 +1,125 @@
+import streamlit as st
+import urllib.parse
 import os
+import re
+import io
 import json
 import zipfile
-import io
-import streamlit as st
+from dotenv import load_dotenv
 
-# ==========================================
-# 1. 核心時光機邏輯 (原始 3.0 單一 JSON 備份)
-# ==========================================
+load_dotenv()
+from core.brain_25 import TravelBrain, DayItinerary
 
-def export_itinerary_to_zip(itinerary_data):
-    """最原始的 3.0 導出：打包成一個包含 JSON 的 zip 檔"""
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        json_str = json.dumps(itinerary_data, ensure_ascii=False, indent=4)
-        zf.writestr("trajectory_data.json", json_str)
-    return zip_buffer.getvalue()
+st.set_page_config(page_title="全球智慧旅遊助手 2.5", page_icon="✈️", layout="wide")
 
-def import_itinerary_from_zip(uploaded_file):
-    """最原始的 3.0 導入：讀取 zip 內的 JSON 還原狀態"""
+st.markdown("""
+<style>
+    .welcome-box { 
+        background-color: rgba(30, 41, 59, 0.05); 
+        padding: 22px; 
+        border-radius: 10px; 
+        border: 1px solid rgba(148, 163, 184, 0.3); 
+        margin-bottom: 25px;
+        color: inherit; 
+    }
+    .welcome-box h4 { color: inherit !important; margin-top: 0px; }
+    .day-header { background: linear-gradient(90deg, #1e293b 0%, #334155 100%); color: white; padding: 12px 20px; border-radius: 6px; font-weight: bold; margin-top: 35px; }
+    .spot-card { background-color: #ffffff; padding: 18px; border-radius: 8px; border-left: 5px solid #ff4b4b; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); color: #1e293b !important; }
+    .spot-card p, .spot-card span, .spot-card div { color: #1e293b !important; }
+    .hotel-card { background-color: #f8fafc; padding: 18px; border-radius: 8px; border-left: 5px solid #3b82f6; margin-top: 20px; color: #1e293b !important; }
+    .hotel-card p, .hotel-card span, .hotel-card div { color: #1e293b !important; }
+    .trans-capsule { display: inline-block; background-color: #f1f5f9; color: #475569 !important; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; margin: 8px 0; border: 1px solid #e2e8f0; }
+    .alt-box { background-color: #fffbeb; border: 1px dashed #fef3c7; padding: 12px 16px; border-radius: 6px; font-size: 0.9rem; margin-top: 10px; color: #78350f !important; }
+    .alt-box b, .alt-box span { color: #78350f !important; }
+    .budget-box { background-color: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); padding: 20px; border-radius: 8px; margin-top: 30px; }
+</style>
+""", unsafe_allow_html=True)
+
+def get_transport_icon(trans_str: str) -> str:
+    if "步行" in trans_str or "🚶" in trans_str: return "🚶"
+    if "地鐵" in trans_str or "🚇" in trans_str: return "🚇"
+    if "公車" in trans_str or "巴士" in trans_str or "🚌" in trans_str: return "🚌"
+    if "飛機" in trans_str or "✈️" in trans_str: return "✈️"
+    if "火車" in trans_str or "🚄" in trans_str: return "🚄"
+    return "🔄"
+
+# 數字安全轉換防呆防線
+def safe_int(val) -> int:
+    if val is None: return 0
+    if isinstance(val, (int, float)): return int(val)
     try:
-        zip_file_bytes = uploaded_file.read()
-        with zipfile.ZipFile(io.BytesIO(zip_file_bytes)) as zf:
-            if "trajectory_data.json" in zf.namelist():
-                json_data = zf.read("trajectory_data.json").decode("utf-8")
-                return json.loads(json_data)
-            else:
-                st.error("導入失敗：找不到 trajectory_data.json")
-                return None
-    except Exception as e:
-        st.error(f"解析出錯: {str(e)}")
-        return None
+        clean_str = re.sub(r'[^\d]', '', str(val))
+        return int(clean_str) if clean_str else 0
+    except:
+        return 0
 
-# ==========================================
-# 2. 狀態初始化
-# ==========================================
-if 'destination' not in st.session_state:
-    st.session_state.destination = "蘇黎世"
-if 'days' not in st.session_state:
-    st.session_state.days = 2
-if 'departure_country' not in st.session_state:
-    st.session_state.departure_country = "台灣"
-if 'departure_time' not in st.session_state:
-    st.session_state.departure_time = "10:00"
-if 'flight_time' not in st.session_state:
-    st.session_state.flight_time = "14小時"
-if 'time_difference' not in st.session_state:
-    st.session_state.time_difference = "-6"
-if 'flight_price' not in st.session_state:
-    st.session_state.flight_price = 35000
-if 'daily_cards' not in st.session_state:
-    st.session_state.daily_cards = [
-        {"day_id": "D1", "title": "台北 ✈ 蘇黎世", "spots_budget": 2000, "hotel_budget": 4650, "day_total": 6650},
-        {"day_id": "D2", "title": "蘇黎世 ➔ 盧森", "spots_budget": 1500, "hotel_budget": 4850, "day_total": 6350}
-    ]
+if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
+if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
+if "user_prompt_val" not in st.session_state: st.session_state.user_prompt_val = ""
+if "total_days_val" not in st.session_state: st.session_state.total_days_val = 7
+if "is_generating" not in st.session_state: st.session_state.is_generating = False
 
-# ==========================================
-# 3. Streamlit UI 畫面呈現
-# ==========================================
-st.title("🌐 全球智慧旅遊助手")
-st.caption("基準版 V3.5.0 | 手機端滾動與預算解耦雙向防線")
+def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
+    st.session_state.user_prompt_val = prompt
+    st.session_state.total_days_val = days
+    st.session_state.start_country_val = country
+    st.session_state.departure_time_val = d_time
+    st.session_state.flight_hours_val = f_hours
+    st.session_state.timezone_diff_val = tz_diff
 
-st.subheader("📝 全局參數設定")
-col1, col2 = st.columns(2)
-with col1:
-    st.session_state.destination = st.text_input("📍 地點", value=st.session_state.destination)
-    st.session_state.days = st.number_input("📅 天數", min_value=1, value=st.session_state.days)
-    st.session_state.departure_country = st.text_input("🛫 出發國", value=st.session_state.departure_country)
-    st.session_state.departure_time = st.text_input("⏰ 出發時間", value=st.session_state.departure_time)
-with col2:
-    st.session_state.flight_time = st.text_input("⏳ 飛行時間", value=st.session_state.flight_time)
-    st.session_state.time_difference = st.text_input("🌐 時差", value=st.session_state.time_difference)
-    st.session_state.flight_price = st.number_input("💵 機票價格 (側邊欄解耦同步)", min_value=0, value=st.session_state.flight_price)
+st.title("✈️ 全球智慧旅遊助手 2.5")
+st.markdown('<div class="welcome-box"><h4>🌐 V3.5.0 剛性解耦完全體（ZIP雙向對齊版）</h4>當地交通與四大維度費用完全接通，導入/導出全面對齊 ZIP 壓縮包檔案！</div>', unsafe_allow_html=True)
 
-st.markdown("---")
+with st.sidebar:
+    # 🌟 方案 B：歷史行程時光機全面對齊 .zip 上傳
+    st.header("⏳ 歷史行程時光機")
+    uploaded_file = st.file_uploader("📦 載入歷史行程存檔 (.zip)", type=["zip"])
+    if uploaded_file is not None:
+        try:
+            with zipfile.ZipFile(uploaded_file, 'r') as z:
+                # 尋找 zip 壓縮包裡的第一個 json 檔案
+                json_files = [f for f in z.namelist() if f.endswith('.json')]
+                if json_files:
+                    with z.open(json_files[0]) as f:
+                        file_data = json.load(f)
+                        if "days_data" in file_data:
+                            restored_days = {}
+                            for k, v in file_data["days_data"].items():
+                                restored_days[int(k)] = DayItinerary.model_validate(v)
+                            st.session_state.itinerary_days = restored_days
+                            if "user_prompt" in file_data:
+                                st.session_state.user_prompt_val = file_data["user_prompt"]
+                            st.success("💾 ZIP 壓縮存檔已成功無損還原！")
+                else:
+                    st.error("壓縮包內找不到有效的行程 JSON 數據。")
+        except Exception as e:
+            st.error(f"解析 ZIP 失敗：{str(e)}")
 
-st.subheader("🛸 雙向無損備份時光機")
+    st.write("---")
+    st.header("⚙️ 旅遊核心設定")
+    user_prompt = st.text_area("🔮 旅遊意向：", value="瑞士 人文 美食 購物 古蹟")
+    total_days = st.number_input("📅 總天數：", min_value=1, max_value=30, value=7, step=1)
+    
+    st.subheader("🛫 航班與時區參數")
+    start_country = st.text_input("📍 出發地地標：", value="台灣台北 (TPE)")
+    departure_time = st.text_input("⏰ 第 1 天起飛時間點：", value="晚上 23:30")
+    flight_hours = st.number_input("⏱️ 飛行總時間 (小時)：", min_value=0.5, max_value=40.0, value=14.0, step=0.5)
+    timezone_diff = st.number_input("🌐 目的地時差 (比台灣慢請填負數)：", min_value=-12.0, max_value=12.0, value=-6.0, step=1.0)
+    
+    st.write("---")
+    st.subheader("💰 剛性預算手動補正")
+    sidebar_flight_cost = st.number_input("✈️ 國際機票總費用 (NT$ / 人)：", min_value=0, value=35000, step=500)
+    
+    col_gen, col_clear = st.columns(2)
+    with col_gen: btn_generate = st.button("🚀 啟動大腦生成", type="primary", use_container_width=True, disabled=st.session_state.is_generating)
+    with col_clear:
+        if st.button("🧹 清空重置", type="secondary", use_container_width=True):
+            st.session_state.itinerary_days = {}
+            st.session_state.user_prompt_val = ""
+            st.session_state.is_generating = False
+            st.rerun()
+            
+    progress_sidebar = st.empty()
 
-# 打包當前狀態
-current_data = {
-    "destination": st.session_state.destination,
-    "days": st.session_state.days,
-    "departure_country": st.session_state.departure_country,
-    "departure_time": st.session_state.departure_time,
-    "flight_time": st.session_state.flight_time,
-    "time_difference": st.session_state.time_difference,
-    "flight_price": st.session_state.flight_price,
-    "daily_cards": st.session_state.daily_cards
-}
-
-# 導出
-zip_data = export_itinerary_to_zip(current_data)
-st.download_button(
-    label="💾 EXPORT 導出行程壓縮包 (.zip)",
-    data=zip_data,
-    file_name="travel_itinerary_backup.zip",
-    mime="application/zip",
-    use_container_width=True
-)
-
-# 導入
-uploaded_zip = st.file_uploader("🔌 UPLOAD 上傳行程壓縮包 (.zip)", type=["zip"])
-if uploaded_zip is not None:
-    imported_data = import_itinerary_from_zip(uploaded_zip)
-    if imported_data:
-        st.session_state.destination = imported_data.get("destination", "")
-        st.session_state.days = imported_data.get("days", 1)
-        st.session_state.departure_country = imported_data.get("departure_country", "")
-        st.session_state.departure_time = imported_data.get("departure_time", "")
-        st.session_state.flight_time = imported_data.get("flight_time", "")
-        st.session_state.time_difference = imported_data.get("time_difference", "")
-        st.session_state.flight_price = imported_data.get("flight_price", 0)
-        st.session_state.daily_cards = imported_data.get("daily_cards", [])
-        st.success("時光機還原成功！")
-
-st.markdown("---")
-st.subheader("📅 當前行程大綱 (預設折疊優化)")
-
-# 渲染卡片 (死守手機端 expanded=False 預設折疊防線)
-for day in st.session_state.daily_cards:
-    with st.expander(f" {day['day_id']} | {day['title']} 💰 小計: NT$ {day['day_total']:,}", expanded=False):
-        st.write(f"景點門票預算：NT$ {day['spots_budget']:,}")
-        st.write(f"住宿酒店預算：NT$ {day['hotel_budget']:,}")
+    # 🌟 方案 B：打包下載同樣採用 ZIP 導出 (雙檔案版本：JSON 數據 + 人類可讀 TXT 摘要)
+    if st
