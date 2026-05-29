@@ -57,11 +57,10 @@ def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
     st.session_state.timezone_diff_val = tz_diff
 
 st.title("✈️ 全球智慧旅遊助手 2.5")
-st.markdown('<div class="welcome-box"><h4>🌐 V3.4.7 行程折疊與時光機完全體</h4>行程預設不展開，側邊欄完美整合『上傳還原』與『一鍵純 JSON 存檔』！</div>', unsafe_allow_html=True)
+st.markdown('<div class="welcome-box"><h4>🌐 V3.4.8 剛性預算精算完全體</h4>每天行程預設折疊，國際機票改由左側手動微調，四大維度完美解耦！</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("⏳ 歷史行程時光機")
-    # 🌟 頂部歷史檔案上傳區 (方案 A：只還原行程，不干擾輸入框)
     uploaded_file = st.file_uploader("📤 載入歷史行程存檔 (.json)", type=["json"])
     if uploaded_file is not None:
         try:
@@ -88,6 +87,11 @@ with st.sidebar:
     flight_hours = st.number_input("⏱️ 飛行總時間 (小時)：", min_value=0.5, max_value=40.0, value=14.0, step=0.5)
     timezone_diff = st.number_input("🌐 目的地時差 (比台灣慢請填負數)：", min_value=-12.0, max_value=12.0, value=-6.0, step=1.0)
     
+    # 🌟 方案 2 關鍵修正：直接在側邊欄加上機票手動輸入框，避開大腦估算漏失風險
+    st.write("---")
+    st.subheader("💰 剛性預算手動補正")
+    sidebar_flight_cost = st.number_input("✈️ 國際機票總費用 (NT$ / 人)：", min_value=0, value=35000, step=500)
+    
     col_gen, col_clear = st.columns(2)
     with col_gen: btn_generate = st.button("🚀 啟動大腦生成", type="primary", use_container_width=True, disabled=st.session_state.is_generating)
     with col_clear:
@@ -99,7 +103,6 @@ with st.sidebar:
             
     progress_sidebar = st.empty()
 
-    # 🌟 存檔導出區：直接生成純 .json 下載按鈕，放到重置按鈕下方
     if st.session_state.itinerary_days:
         st.write("---")
         st.header("💾 行程備份導出")
@@ -108,6 +111,7 @@ with st.sidebar:
         
         export_dict = {
             "user_prompt": st.session_state.user_prompt_val,
+            "sidebar_flight_cost": sidebar_flight_cost,
             "days_data": {str(k): v.model_dump() for k, v in st.session_state.itinerary_days.items()}
         }
         json_string = json.dumps(export_dict, ensure_ascii=False, indent=2)
@@ -150,16 +154,15 @@ if st.session_state.is_generating:
 if st.session_state.itinerary_days:
     st.header(f"🗺️ 行程：{st.session_state.user_prompt_val}")
     
-    total_flight_cost = 0
+    # 🌟 方案 2 核心更動：國際機票花費直接等於左側邊欄輸入的值
+    total_flight_cost = int(sidebar_flight_cost)
     total_hotel_cost = 0
     total_local_transport_cost = 0
     total_food_ticket_cost = 0
     
-    # 先撈取與加總四大費用數據
+    # 累加其餘三大維度費用
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
-        try: total_flight_cost += int(getattr(day_data, 'estimated_flight_cost', 0))
-        except: pass
         try: total_hotel_cost += int(day_data.hotel.estimated_spending) if day_data.hotel.estimated_spending else 0
         except: pass
         for spot in day_data.spots:
@@ -168,10 +171,10 @@ if st.session_state.itinerary_days:
             try: total_local_transport_cost += int(getattr(spot, 'estimated_transport_cost', 0))
             except: pass
 
-    # 💰 四大剛性預算精算區塊（置頂顯示，一目了然）
+    # 💰 四大剛性預算精算區塊
     total_rigid_cost = total_flight_cost + total_hotel_cost + total_local_transport_cost + total_food_ticket_cost
     st.markdown('<div class="budget-box">', unsafe_allow_html=True)
-    st.subheader("💰 本次旅遊剛性預算精算概估")
+    st.subheader("💰 本次旅遊剛性預算精算概估 (四大維度解耦版)")
     
     if total_rigid_cost > 0:
         flight_pct = (total_flight_cost / total_rigid_cost) * 100
@@ -199,7 +202,7 @@ if st.session_state.itinerary_days:
         st.info("暫無費用支出數據。")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 📅 每日行程區塊：🌟 關鍵修正在這，將 expanded 改為 False，預設折疊不展開
+    # 📅 每日行程區塊（預設折疊）
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
         
