@@ -1,73 +1,98 @@
 import os
+import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 
+class AltSpotDetail(BaseModel):
+    name: str = Field(description="替代餐廳或活動的繁體中文名稱，禁止包含 HTML 標籤")
+    desc: str = Field(description="一句話特色與推薦簡述，禁止包含 HTML 標籤")
+
+class AltHotelDetail(BaseModel):
+    name: str = Field(description="替代飯店或住宿的繁體中文名稱，禁止包含 HTML 標籤")
+    desc: str = Field(description="一句話推薦理由與預估價位，禁止包含 HTML 標籤")
+
 class SpotDetail(BaseModel):
-    time: str = Field(description="建議造訪的時間點，例如 '09:00 - 11:30'")
+    time: str = Field(description="建議停留時間或時段，例如 '09:00 - 11:00'")
     name: str = Field(description="景點或餐廳的繁體中文名稱")
-    map_keyword: str = Field(description="最精準的 Google 地圖搜尋關鍵字，需包含城市名，如 'Louvre Museum, Paris'")
-    description: str = Field(description="深度景點人文歷史背景、旅遊攻略、必吃特色菜、必買清單與防坑指南")
-    transportation: str = Field(description="從上一個點移動到此點的推薦交通方式與預估轉乘時間，如 '搭乘地鐵M1線至Palais Royal站 (約15分鐘)'")
-    estimated_transport_cost: int = Field(description="這趟移動的單人當地交通車資預估（台幣），如地鐵票價。若步行則填 0")
-    booking_info: str = Field(description="詳細訂位或購票攻略，如 '建議提前30天在官網預約門票，現場無售現票'")
-    ticket_link_query: str = Field(description="搜尋該景點購票或訂位網站的精準關鍵字。若免費景點或無須購票則強制填寫 'FREE'")
-    estimated_spending: int = Field(description="單人在該景點的預估純花費（門票、餐飲、體驗費，不含交通與購物，折合台幣價格）")
+    description: str = Field(description="該點的特色介紹（嚴格繁體中文，生動人性化，嚴格禁止任何 HTML 標籤）")
+    transportation: str = Field(description="前往該地點的交通方式，必須包含預估時間與具體線路/班次")
+    booking_info: str = Field(description="該景點的門票、費用、訂位或購票攻略")
+    estimated_spending: int = Field(description="預估現場現場門票或個人純餐費，必須是純整數，單位為新台幣(TWD)，免門票或不花錢請填 0")
+    estimated_transport_cost: int = Field(description="前往該地點預估需要花費的交通車資（如地鐵票、火車票、計程車費），必須是純整數，單位為新台幣(TWD)，步行或不花錢請填 0")
+    map_keyword: str = Field(description="Google Maps 搜尋關鍵字")
+    ticket_link_query: str = Field(description="官網購票連結英文關鍵字（若不需門票則填寫 FREE）")
+    alternatives: List[AltSpotDetail] = Field(default=[], description="備案選擇")
 
 class HotelDetail(BaseModel):
-    name: str = Field(description="建議下榻飯店或住宿名稱")
-    map_keyword: str = Field(description="飯店的 Google 地圖精準搜尋關鍵字")
-    description: str = Field(description="選擇這家住宿的理由、安全區域考量、周邊便利性（如鄰近哪座車站）")
-    booking_info: str = Field(description="訂房管道建議，如 '透過 Booking.com 或 Agoda 預訂'")
-    estimated_spending: int = Field(description="單人每晚預估住宿花費（折合台幣價格）")
+    name: str = Field(description="建議入住飯店名稱，若該晚不需住宿，請填寫 '無（此夜在機上過夜）'")
+    description: str = Field(description="推薦該飯店的理由、周邊機能與特色描述")
+    booking_info: str = Field(description="訂房管道建議與房型提醒")
+    estimated_spending: int = Field(description="預估該晚每房住宿花費，必須是純整數，單位為新台幣(TWD)，若不需住宿請填 0")
+    map_keyword: str = Field(description="Google Maps 搜尋關鍵字")
+    alternatives: List[AltHotelDetail] = Field(default=[], description="備案住宿")
 
 class DayItinerary(BaseModel):
-    day_number: int = Field(description="當前天數序號")
-    day_title: str = Field(description="這一天行程的主題核心摘要，例如 '巴黎古典藝術啟航：盧浮宮與塞納河畔'")
-    spots: List[SpotDetail] = Field(description="當天按時間順序排列的景點與餐飲明細列表")
-    hotel: HotelDetail = Field(description="當晚建議下榻的住宿資訊")
+    day_number: int = Field(description="旅遊天數索引")
+    day_title: str = Field(description="行程主題標題")
+    estimated_flight_cost: int = Field(description="預估從出發地到目的地的來回國際機票總花費（僅限個人來回經濟艙刚性基礎估計）。請大腦根據起飛地、飛行時間合理盲猜。如果不是第 1 天，請一律填 0")
+    spots: List[SpotDetail] = Field(description="當日景點清單")
+    hotel: HotelDetail = Field(description="當晚入住飯店")
 
 class TravelBrain:
     def __init__(self):
-        self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self.client = genai.Client()
         self.model_name = "gemini-2.5-pro"
-        
-    def generate_day_itinerary(self, user_prompt: str, total_days: int, current_day: int, context_str: str, start_country: str, departure_time: str, flight_hours: float, timezone_diff: float) -> DayItinerary:
-        system_instruction = f"""你是一位擁有20年自由行規劃經驗的殿堂級老導遊。
-請嚴格根據使用者的出發參數、旅遊意向（可能包含旅行社團體行程文字範本）、以及前幾天已生成的行程上下文，來編排精準的第 {current_day} 天行程。
 
-【出發與時區參數說明（Day 1 計算基準）】
-- 出發地地標：{start_country}
-- 第 1 天起飛時間點：{departure_time}
-- 飛行總時間（小時）：{flight_hours}
-- 目的地時差：{timezone_diff} 小時
-
-【大局編排核心原則】
-1. 請維持四大維度剛性預算精算架構：國際機票費用已被側邊欄手動接管，請你在 Spots 欄位中『集中算準』：
-   - 景點內部的『estimated_spending』（純餐飲門票費）
-   - 移動時的『estimated_transport_cost』（當地交通車資，如火車、地鐵票，若是步行或遊覽車填0）
-   - 住宿的『estimated_spending』（單人每晚住宿費）
-2. 全程一律轉換為【新台幣 NT$】進行估算。
-3. 行程不可跳躍，交通銜接必須合乎邏輯。特別注意當輸入包含旅行社範本時，請幫忙進行去泡沫化的深度拆解，確保順序與地理銜接正確。
-"""
-        prompt = f"""使用者旅遊意向或旅行社參考範本：{user_prompt}
-總天數：{total_days} 天
-當前要生成的目標天數：第 {current_day} 天
-
-【前幾天已排定行程大綱參考（請務必嚴格連貫銜接）】：
-{context_str}
-
-請為我生成符合期待並完美承接前一天動線的第 {current_day} 天深度結構化行程。"""
-
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                response_schema=DayItinerary,
-                temperature=0.3
-            )
+    def generate_day_itinerary(self, user_prompt: str, total_days: int, current_day: int, previous_days_context: str, start_country: str, departure_time: str, flight_hours: float, timezone_diff: float) -> DayItinerary:
+        system_instruction = (
+            "別名：老導遊物理時區引擎\n"
+            "你是一位擁有30年帶團經驗的頂級全球資深星級老導遊。你現在要為使用者打造極致貼心、充滿鬆弛感的旅遊行程。\n"
+            "你必須嚴格遵守以下物理與邏輯鐵律，絕對禁止違反：\n\n"
+            "【鐵律 1】語言與貨幣：完全使用『繁體中文（台灣）』。費用統一以『新台幣 (TWD)』計價，且必須為純整數數字。\n"
+            "【鐵律 2】機票估算防禦：你必須在 Day 1 根據出發地與目的地距離，估算一個合理的來回國際機票新台幣整數價格，填入 estimated_flight_cost。第 2 天之後的行程該欄位一律嚴格填寫 0。\n"
+            "【鐵律 3】時區物理引擎核心公式：\n"
+            "  落地時間 = 起飛時間 + 飛行總時間 + 時差變更（目的地時差）。\n"
+            "  * 狀況 A：若經公式推算，第 1 天出發後，落地時間已是「隔天清晨或上午」。\n"
+            "    - 第 1 天整天均在飛機上。此時【第 1 天的 hotel 欄位中的 name 必須嚴格填寫：'無（此夜在機上過夜）'，且 estimated_spending 填 0】！\n"
+            "  * 狀況 B：若經公式推算，落地時間為「當天下午或傍晚/夜間」。\n"
+            "    - 旅客在第 1 天晚上就需要床位。此時【第 1 天的 hotel 欄位必須精準指名當晚入住飯店與估算房價】！\n"
+            "【鐵律 4】費用精細拆分：餐飲與門票花費填入 estimated_spending；而該景點移動產生的交通車資（地鐵、火車票）請務必獨立計算並填入 estimated_transport_cost，嚴禁混為一談！"
         )
-        return DayItinerary.model_validate_json(response.text)
+
+        full_prompt = (
+            "🛫 出發地：{0}\n⏰ 第 1 天起飛時間點：{1}\n⏱️ 預估飛行總時間：{2} 小時\n🌐 目的地時差：{3} 小時\n🎯 目的地與偏好：{4}\n📅 規劃總天數：{5} 天\n📌 當前正在生成：第 {6} 天的行程\n🧱 前情提要資訊：\n{7}"
+        ).format(start_country, departure_time, flight_hours, timezone_diff, user_prompt, total_days, current_day, previous_days_context)
+
+        for attempt in range(3):
+            try:
+                config = types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0.3,
+                    response_mime_type="application/json",
+                    response_schema=DayItinerary,
+                )
+                response = self.client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
+                return DayItinerary.model_validate_json(response.text)
+            except Exception as e:
+                if attempt == 2: return self.get_fallback_itinerary(current_day, str(e))
+                time.sleep(1)
+
+    def refine_day_itinerary(self, user_prompt: str, current_day_data: DayItinerary, refine_instruction: str) -> DayItinerary:
+        system_instruction = "你是一位資深老導遊，負責局部微調行程。請保持繁體中文與台幣計價（金額為純整數），並產出新的 JSON 結構。"
+        full_prompt = "🎯 原始設定：{0}\n📋 原行程：{1}\n🛠️ 微調指令：{2}".format(user_prompt, current_day_data.model_dump_json(), refine_instruction)
+        try:
+            config = types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.2, response_mime_type="application/json", response_schema=DayItinerary)
+            response = self.client.models.generate_content(model=self.model_name, contents=full_prompt, config=config)
+            return DayItinerary.model_validate_json(response.text)
+        except Exception: return current_day_data
+
+    def get_fallback_itinerary(self, day_num: int, reason: str) -> DayItinerary:
+        return DayItinerary(
+            day_number=day_num,
+            day_title="第 {0} 天 行程數據待微調".format(day_num),
+            estimated_flight_cost=0,
+            spots=[SpotDetail(time="09:00", name="系統定錨提示", description="API波動：{0}。請微調重試。".format(reason), transportation="🚶 步行", booking_info="無", estimated_spending=0, estimated_transport_cost=0, map_keyword="Rome", ticket_link_query="FREE", alternatives=[])],
+            hotel=HotelDetail(name="待選定飯店", description="等待微調指令", booking_info="無", estimated_spending=0, map_keyword="Hotel", alternatives=[])
+        )
