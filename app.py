@@ -4,6 +4,7 @@ import os
 import re
 import io
 import json
+import zipfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,6 +43,16 @@ def get_transport_icon(trans_str: str) -> str:
     if "火車" in trans_str or "🚄" in trans_str: return "🚄"
     return "🔄"
 
+# 數字安全轉換防呆防線
+def safe_int(val) -> int:
+    if val is None: return 0
+    if isinstance(val, (int, float)): return int(val)
+    try:
+        clean_str = re.sub(r'[^\d]', '', str(val))
+        return int(clean_str) if clean_str else 0
+    except:
+        return 0
+
 if "brain" not in st.session_state: st.session_state.brain = TravelBrain()
 if "itinerary_days" not in st.session_state: st.session_state.itinerary_days = {}
 if "user_prompt_val" not in st.session_state: st.session_state.user_prompt_val = ""
@@ -57,24 +68,32 @@ def capture_sidebar_inputs(prompt, days, country, d_time, f_hours, tz_diff):
     st.session_state.timezone_diff_val = tz_diff
 
 st.title("✈️ 全球智慧旅遊助手 2.5")
-st.markdown('<div class="welcome-box"><h4>🌐 V3.4.8 剛性預算精算完全體</h4>每天行程預設折疊，國際機票改由左側手動微調，四大維度完美解耦！</div>', unsafe_allow_html=True)
+st.markdown('<div class="welcome-box"><h4>🌐 V3.5.0 剛性解耦完全體（ZIP雙向對齊版）</h4>當地交通與四大維度費用完全接通，導入/導出全面對齊 ZIP 壓縮包檔案！</div>', unsafe_allow_html=True)
 
 with st.sidebar:
+    # 🌟 方案 B：歷史行程時光機全面對齊 .zip 上傳
     st.header("⏳ 歷史行程時光機")
-    uploaded_file = st.file_uploader("📤 載入歷史行程存檔 (.json)", type=["json"])
+    uploaded_file = st.file_uploader("📦 載入歷史行程存檔 (.zip)", type=["zip"])
     if uploaded_file is not None:
         try:
-            file_data = json.load(uploaded_file)
-            if "days_data" in file_data:
-                restored_days = {}
-                for k, v in file_data["days_data"].items():
-                    restored_days[int(k)] = DayItinerary.model_validate(v)
-                st.session_state.itinerary_days = restored_days
-                if "user_prompt" in file_data:
-                    st.session_state.user_prompt_val = file_data["user_prompt"]
-                st.success("💾 歷史行程已成功無損還原！")
+            with zipfile.ZipFile(uploaded_file, 'r') as z:
+                # 尋找 zip 壓縮包裡的第一個 json 檔案
+                json_files = [f for f in z.namelist() if f.endswith('.json')]
+                if json_files:
+                    with z.open(json_files[0]) as f:
+                        file_data = json.load(f)
+                        if "days_data" in file_data:
+                            restored_days = {}
+                            for k, v in file_data["days_data"].items():
+                                restored_days[int(k)] = DayItinerary.model_validate(v)
+                            st.session_state.itinerary_days = restored_days
+                            if "user_prompt" in file_data:
+                                st.session_state.user_prompt_val = file_data["user_prompt"]
+                            st.success("💾 ZIP 壓縮存檔已成功無損還原！")
+                else:
+                    st.error("壓縮包內找不到有效的行程 JSON 數據。")
         except Exception as e:
-            st.error(f"解析存檔失敗，請確認檔案格式是否正確。")
+            st.error(f"解析 ZIP 失敗：{str(e)}")
 
     st.write("---")
     st.header("⚙️ 旅遊核心設定")
@@ -87,7 +106,6 @@ with st.sidebar:
     flight_hours = st.number_input("⏱️ 飛行總時間 (小時)：", min_value=0.5, max_value=40.0, value=14.0, step=0.5)
     timezone_diff = st.number_input("🌐 目的地時差 (比台灣慢請填負數)：", min_value=-12.0, max_value=12.0, value=-6.0, step=1.0)
     
-    # 🌟 方案 2 關鍵修正：直接在側邊欄加上機票手動輸入框，避開大腦估算漏失風險
     st.write("---")
     st.subheader("💰 剛性預算手動補正")
     sidebar_flight_cost = st.number_input("✈️ 國際機票總費用 (NT$ / 人)：", min_value=0, value=35000, step=500)
@@ -103,6 +121,7 @@ with st.sidebar:
             
     progress_sidebar = st.empty()
 
+    # 🌟 方案 B：打包下載同樣採用 ZIP 導出
     if st.session_state.itinerary_days:
         st.write("---")
         st.header("💾 行程備份導出")
@@ -116,11 +135,16 @@ with st.sidebar:
         }
         json_string = json.dumps(export_dict, ensure_ascii=False, indent=2)
         
+        # 建立記憶體內的 ZIP 壓縮檔
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"{file_base_name}.json", json_string.encode("utf-8"))
+        
         st.download_button(
-            label="💾 下載當前行程存檔 (.json)",
-            data=json_string.encode("utf-8"),
-            file_name=f"{file_base_name}.json",
-            mime="application/json",
+            label="📦 下載當前行程存檔 (.zip)",
+            data=zip_buffer.getvalue(),
+            file_name=f"{file_base_name}.zip",
+            mime="application/zip",
             use_container_width=True
         )
 
@@ -154,27 +178,40 @@ if st.session_state.is_generating:
 if st.session_state.itinerary_days:
     st.header(f"🗺️ 行程：{st.session_state.user_prompt_val}")
     
-    # 🌟 方案 2 核心更動：國際機票花費直接等於左側邊欄輸入的值
-    total_flight_cost = int(sidebar_flight_cost)
+    total_flight_cost = safe_int(sidebar_flight_cost)
     total_hotel_cost = 0
     total_local_transport_cost = 0
     total_food_ticket_cost = 0
     
-    # 累加其餘三大維度費用
+    # 累加四大維度費用（加入全方位多欄位反射防呆，徹底打通當地交通費與飯店支出）
     for day_counter in sorted(st.session_state.itinerary_days.keys()):
         day_data: DayItinerary = st.session_state.itinerary_days[day_counter]
-        try: total_hotel_cost += int(day_data.hotel.estimated_spending) if day_data.hotel.estimated_spending else 0
-        except: pass
-        for spot in day_data.spots:
-            try: total_food_ticket_cost += int(spot.estimated_spending) if spot.estimated_spending else 0
-            except: pass
-            try: total_local_transport_cost += int(getattr(spot, 'estimated_transport_cost', 0))
-            except: pass
+        
+        # 1. 住宿費防呆反射
+        if getattr(day_data, 'hotel', None):
+            h_cost = getattr(day_data.hotel, 'estimated_spending', 0) or getattr(day_data.hotel, 'estimated_cost', 0)
+            total_hotel_cost += safe_int(h_cost)
+            
+        # 2. 景點花費 與 當地交通費多欄位對齊
+        if getattr(day_data, 'spots', None):
+            for spot in day_data.spots:
+                # 門票/餐饮費
+                f_cost = getattr(spot, 'estimated_spending', 0) or getattr(spot, 'estimated_cost', 0)
+                total_food_ticket_cost += safe_int(f_cost)
+                
+                # 当地交通费（相容多種可能的大腦回傳欄位名稱）
+                t_cost = (
+                    getattr(spot, 'estimated_transport_cost', None) or 
+                    getattr(spot, 'transport_cost', None) or 
+                    getattr(spot, 'estimated_transportation_cost', None) or 
+                    0
+                )
+                total_local_transport_cost += safe_int(t_cost)
 
-    # 💰 四大剛性預算精算區塊
+    # 💰 四大剛性預算精算區塊展示
     total_rigid_cost = total_flight_cost + total_hotel_cost + total_local_transport_cost + total_food_ticket_cost
     st.markdown('<div class="budget-box">', unsafe_allow_html=True)
-    st.subheader("💰 本次旅遊剛性預算精算概估 (四大維度解耦版)")
+    st.subheader("💰 本次旅遊剛性預算精算概估 (四大維度全面解耦)")
     
     if total_rigid_cost > 0:
         flight_pct = (total_flight_cost / total_rigid_cost) * 100
@@ -190,13 +227,13 @@ if st.session_state.itinerary_days:
         c5.metric("🍱 純餐飲與門票", f"NT$ {total_food_ticket_cost:,}", f"{food_pct:.1f}%")
         
         st.markdown("**📉 預算分配比例結構：**")
-        st.markdown(f"✈️ 國際機票明細 ({flight_pct:.1f}%)")
+        st.markdown(f"✈️ 國際機票佔比 ({flight_pct:.1f}%)")
         st.progress(flight_pct / 100.0)
-        st.markdown(f"🏨 住宿花費明細 ({hotel_pct:.1f}%)")
+        st.markdown(f"🏨 住宿花費佔比 ({hotel_pct:.1f}%)")
         st.progress(hotel_pct / 100.0)
-        st.markdown(f"🚇 當地交通明細 ({trans_pct:.1f}%)")
+        st.markdown(f"🚇 當地交通佔比 ({trans_pct:.1f}%)")
         st.progress(trans_pct / 100.0)
-        st.markdown(f"🍱 純餐飲門票明細 ({food_pct:.1f}%)")
+        st.markdown(f"🍱 純餐飲門票佔比 ({food_pct:.1f}%)")
         st.progress(food_pct / 100.0)
     else:
         st.info("暫無費用支出數據。")
@@ -209,8 +246,14 @@ if st.session_state.itinerary_days:
         with st.expander(f"📅 第 {day_counter} 天：{day_data.day_title}", expanded=False):
             st.markdown(f'<div class="day-header">📅 第 {day_counter} 天：{day_data.day_title}</div>', unsafe_allow_html=True)
             for spot in day_data.spots:
-                spot_t_cost = getattr(spot, 'estimated_transport_cost', 0)
-                st.markdown(f'<div class="spot-card"><span style="font-weight: bold; color: #1e293b;">⏱️ {spot.time} - {spot.name}</span><p style="color: #475569; font-size: 0.95rem; margin-top: 6px;">{spot.description}</p><div class="trans-capsule">{get_transport_icon(spot.transportation)} {spot.transportation}</div><div style="font-size: 0.88rem; color: #64748b;">🎫 <b>購票：</b>{spot.booking_info} | 🍱 <b>純餐飲門票：</b>NT$ {spot.estimated_spending:,} | 🚇 <b>車資支出：</b>NT$ {spot_t_cost:,}</div></div>', unsafe_allow_html=True)
+                spot_t_cost = safe_int(
+                    getattr(spot, 'estimated_transport_cost', None) or 
+                    getattr(spot, 'transport_cost', None) or 
+                    getattr(spot, 'estimated_transportation_cost', 0)
+                )
+                spot_s_cost = safe_int(getattr(spot, 'estimated_spending', 0))
+                
+                st.markdown(f'<div class="spot-card"><span style="font-weight: bold; color: #1e293b;">⏱️ {spot.time} - {spot.name}</span><p style="color: #475569; font-size: 0.95rem; margin-top: 6px;">{spot.description}</p><div class="trans-capsule">{get_transport_icon(spot.transportation)} {spot.transportation}</div><div style="font-size: 0.88rem; color: #64748b;">🎫 <b>購票：</b>{spot.booking_info} | 🍱 <b>純餐飲門票：</b>NT$ {spot_s_cost:,} | 🚇 <b>車資支出：</b>NT$ {spot_t_cost:,}</div></div>', unsafe_allow_html=True)
                 col1, col2 = st.columns(2)
                 with col1: st.link_button(f"🗺️ Google Maps: {spot.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(spot.map_keyword)}", use_container_width=True)
                 with col2:
@@ -218,5 +261,6 @@ if st.session_state.itinerary_days:
             
             hotel = day_data.hotel
             has_hotel = "無（" not in hotel.name
-            st.markdown(f'<div class="hotel-card" style="border-left-color: {"#3b82f6" if has_hotel else "#94a3b8"}; background-color: {"#f8fafc" if has_hotel else "#f1f5f9"};"><span style="font-weight: bold; color: {"#1e3a8a" if has_hotel else "#475569"};">🏨 下榻建議：{hotel.name}</span><p style="color: #334155; font-size: 0.95rem; margin-top: 6px;">{hotel.description}</p><div style="font-size: 0.88rem;">ℹ️ {hotel.booking_info} | 💳 每晚：NT$ {hotel.estimated_spending:,}</div></div>', unsafe_allow_html=True)
+            h_spending = safe_int(getattr(hotel, 'estimated_spending', 0) or getattr(hotel, 'estimated_cost', 0))
+            st.markdown(f'<div class="hotel-card" style="border-left-color: {"#3b82f6" if has_hotel else "#94a3b8"}; background-color: {"#f8fafc" if has_hotel else "#f1f5f9"};"><span style="font-weight: bold; color: {"#1e3a8a" if has_hotel else "#475569"};">🏨 下榻建議：{hotel.name}</span><p style="color: #334155; font-size: 0.95rem; margin-top: 6px;">{hotel.description}</p><div style="font-size: 0.88rem;">ℹ️ {hotel.booking_info} | 💳 每晚：NT$ {h_spending:,}</div></div>', unsafe_allow_html=True)
             if has_hotel: st.link_button(f"🗺️ 地圖查看飯店：{hotel.name}", f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(hotel.map_keyword)}", use_container_width=True)
