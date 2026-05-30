@@ -1,3 +1,6 @@
+# =========================================
+# 檔名：core/brain_25.py (基準版 3.0 Pydantic 大腦邏輯)
+# =========================================
 import os
 import time
 from typing import List, Optional
@@ -18,7 +21,7 @@ class SpotDetail(BaseModel):
     name: str = Field(description="景點或餐廳的繁體中文名稱")
     description: str = Field(description="該點的特色介紹（嚴格繁體中文，生動人性化，嚴格禁止任何 HTML 標籤）")
     transportation: str = Field(description="前往該地點的交通方式，必須包含預估時間與具體線路/班次")
-    booking_info: str = Field(description="該景點的門票、費用、訂位或購票攻略")
+    booking_info: str = Field(description="該景點的門票、費用、訂位 or 購票攻略")
     estimated_spending: int = Field(description="預估現場現場門票或個人純餐費，必須是純整數，單位為新台幣(TWD)，免門票或不花錢請填 0")
     estimated_transport_cost: int = Field(description="前往該地點預估需要花費的交通車資（如地鐵票、火車票、計程車費），必須是純整數，單位為新台幣(TWD)，步行或不花錢請填 0")
     map_keyword: str = Field(description="Google Maps 搜尋關鍵字")
@@ -48,7 +51,7 @@ class TravelBrain:
     def generate_day_itinerary(self, user_prompt: str, total_days: int, current_day: int, previous_days_context: str, start_country: str, departure_time: str, flight_hours: float, timezone_diff: float) -> DayItinerary:
         system_instruction = (
             "別名：老導遊物理時區引擎\n"
-            "你是一位擁有30年帶團經驗的頂級全球資深星級老導遊。你現在要為使用者打造極致貼心、充滿鬆弛感的旅遊行程。\n"
+            "你是一位擁有30年帶團經驗的頂級全球資深星級老導遊。你現在要為使用者打造極致貼心、充滿鬆弛感且具備穿透成本視野的旅遊行程。\n"
             "你必須嚴格遵守以下物理與邏輯鐵律，絕對禁止違反：\n\n"
             "【鐵律 1】語言與貨幣：完全使用『繁體中文（台灣）』。費用統一以『新台幣 (TWD)』計價，且必須為純整數數字。\n"
             "【鐵律 2】機票估算防禦：你必須在 Day 1 根據出發地與目的地距離，估算一個合理的來回國際機票新台幣整數價格，填入 estimated_flight_cost。第 2 天之後的行程該欄位一律嚴格填寫 0。\n"
